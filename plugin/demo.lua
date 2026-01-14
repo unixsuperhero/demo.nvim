@@ -8,6 +8,27 @@ local demo = require('demo')
 -- Setup highlight groups immediately
 demo.setup()
 
+-- Completion function for highlight groups
+local function complete_hlgroups(arg_lead, cmd_line, cursor_pos)
+  local groups = {
+    'DemoHighlight1',
+    'DemoHighlight2',
+    'DemoHighlight3',
+    'DemoHighlight4',
+    'DemoHighlight5',
+  }
+  if arg_lead == '' then
+    return groups
+  end
+  local matches = {}
+  for _, g in ipairs(groups) do
+    if g:lower():find(arg_lead:lower(), 1, true) then
+      table.insert(matches, g)
+    end
+  end
+  return matches
+end
+
 -- Highlight commands
 vim.api.nvim_create_user_command('DemoHighlight', function(opts)
   local hlgroup = opts.args ~= '' and opts.args or 'DemoHighlight1'
@@ -15,6 +36,7 @@ vim.api.nvim_create_user_command('DemoHighlight', function(opts)
 end, {
   nargs = '?',
   range = true,
+  complete = complete_hlgroups,
   desc = 'Highlight visual selection with specified highlight group',
 })
 
@@ -171,8 +193,11 @@ end, {
 })
 
 -- Keymaps
--- <leader>dh - Highlight in visual mode
+-- <leader>dh - Highlight in visual mode (default highlight group)
 vim.keymap.set('v', '<leader>dh', ':DemoHighlight<CR>', { desc = 'Demo: Highlight selection' })
+
+-- <leader>dH - Highlight in visual mode (prompts for highlight group)
+vim.keymap.set('v', '<leader>dH', ':DemoHighlight ', { desc = 'Demo: Highlight selection with group' })
 
 -- <leader>db - Bookmark (prompts for name)
 vim.keymap.set('n', '<leader>db', ':DemoBookmark ', { desc = 'Demo: Bookmark current state' })
@@ -206,13 +231,7 @@ vim.keymap.set('n', '<leader>dg', ':DemoGoto ', { desc = 'Demo: Goto bookmark/st
 vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileChangedShellPost' }, {
   group = vim.api.nvim_create_augroup('DemoNvimFileChange', { clear = true }),
   callback = function(ev)
-    local highlight = require('demo.highlight')
-    local state = require('demo.state')
-    highlight.clear(ev.buf)
-    local cache = state.get_cache(ev.buf)
-    if cache then
-      cache.current_position = 0
-    end
+    demo.reload()
   end,
   desc = 'Clear demo highlights when file is reloaded from disk',
 })
