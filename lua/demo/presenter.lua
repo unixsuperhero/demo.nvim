@@ -1,5 +1,5 @@
 local highlight = require('demo.highlight')
-local bookmark = require('demo.bookmark')
+local state = require('demo.state')
 
 local M = {}
 
@@ -11,7 +11,6 @@ local function get_state(bufnr)
   if not presenter_state[bufnr] then
     presenter_state[bufnr] = {
       active = false,
-      current_index = 0,  -- 0 means "no bookmark applied" (blank state)
     }
   end
   return presenter_state[bufnr]
@@ -23,155 +22,227 @@ end
 
 function M.start(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local state = get_state(bufnr)
+  local pstate = get_state(bufnr)
 
-  -- Load bookmarks
-  local bookmarks = bookmark.load(bufnr)
-  if #bookmarks == 0 then
-    vim.notify('demo.nvim: No bookmarks found for this file/commit', vim.log.levels.WARN)
+  -- Load states from disk
+  state.load(bufnr)
+  local pos = state.get_position(bufnr)
+
+  if pos.total == 0 then
+    vim.notify('demo.nvim: No states recorded for this file', vim.log.levels.WARN)
     return false
   end
 
-  state.active = true
-  state.current_index = 0  -- Start at blank state
+  pstate.active = true
 
-  -- Clear any existing highlights to start fresh
-  highlight.clear(bufnr)
+  -- Start at position 0 (blank)
+  state.goto_position(bufnr, 0)
 
-  vim.notify(string.format('demo.nvim: Presenter started (%d bookmarks). Use :DemoNext to begin.', #bookmarks), vim.log.levels.INFO)
+  local bookmarks = state.get_bookmarks(bufnr)
+  vim.notify(string.format('demo.nvim: Presenter started (%d steps, %d bookmarks)', pos.total, #bookmarks), vim.log.levels.INFO)
   return true
 end
 
 function M.stop(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local state = get_state(bufnr)
+  local pstate = get_state(bufnr)
 
-  if not state.active then
+  if not pstate.active then
     vim.notify('demo.nvim: Presenter is not active', vim.log.levels.WARN)
     return false
   end
 
-  state.active = false
-  state.current_index = 0
+  pstate.active = false
   highlight.clear(bufnr)
 
   vim.notify('demo.nvim: Presenter stopped', vim.log.levels.INFO)
   return true
 end
 
+function M.toggle(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if M.is_active(bufnr) then
+    return M.stop(bufnr)
+  else
+    return M.start(bufnr)
+  end
+end
+
+-- Next step (any state)
+function M.next_step(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local pstate = get_state(bufnr)
+
+  if not pstate.active then
+    vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
+    return false
+  end
+
+  local pos = state.get_position(bufnr)
+  if pos.position >= pos.total then
+    vim.notify('demo.nvim: Already at last step', vim.log.levels.INFO)
+    return false
+  end
+
+  state.goto_position(bufnr, pos.position + 1)
+  pos = state.get_position(bufnr)
+
+  local bookmark_str = pos.state and pos.state.bookmark and (' "' .. pos.state.bookmark .. '"') or ''
+  vim.notify(string.format('demo.nvim: Step %d/%d%s', pos.position, pos.total, bookmark_str), vim.log.levels.INFO)
+  return true
+end
+
+-- Previous step (any state)
+function M.prev_step(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local pstate = get_state(bufnr)
+
+  if not pstate.active then
+    vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
+    return false
+  end
+
+  local pos = state.get_position(bufnr)
+  if pos.position <= 0 then
+    vim.notify('demo.nvim: Already at beginning', vim.log.levels.INFO)
+    return false
+  end
+
+  state.goto_position(bufnr, pos.position - 1)
+  pos = state.get_position(bufnr)
+
+  if pos.position == 0 then
+    vim.notify(string.format('demo.nvim: Step 0/%d (blank)', pos.total), vim.log.levels.INFO)
+  else
+    local bookmark_str = pos.state and pos.state.bookmark and (' "' .. pos.state.bookmark .. '"') or ''
+    vim.notify(string.format('demo.nvim: Step %d/%d%s', pos.position, pos.total, bookmark_str), vim.log.levels.INFO)
+  end
+  return true
+end
+
+-- Next bookmark
 function M.next(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local state = get_state(bufnr)
+  local pstate = get_state(bufnr)
 
-  if not state.active then
+  if not pstate.active then
     vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
     return false
   end
 
-  local bookmarks = bookmark.list(bufnr)
-  local total = #bookmarks
-
-  if state.current_index >= total then
-    vim.notify('demo.nvim: Already at last bookmark', vim.log.levels.INFO)
+  local next_pos = state.find_bookmark_position(bufnr, 1)
+  if not next_pos then
+    vim.notify('demo.nvim: No more bookmarks ahead', vim.log.levels.INFO)
     return false
   end
 
-  state.current_index = state.current_index + 1
-  local bm = bookmarks[state.current_index]
-  highlight.set_all(bufnr, bm.highlights)
+  state.goto_position(bufnr, next_pos)
+  local pos = state.get_position(bufnr)
+  local bookmarks = state.get_bookmarks(bufnr)
 
-  vim.notify(string.format('demo.nvim: [%d/%d] %s', state.current_index, total, bm.name), vim.log.levels.INFO)
+  -- Find which bookmark number this is
+  local bookmark_num = 0
+  for i, bm in ipairs(bookmarks) do
+    if bm.index == pos.state.index then
+      bookmark_num = i
+      break
+    end
+  end
+
+  vim.notify(string.format('demo.nvim: Bookmark %d/%d "%s" (step %d)', bookmark_num, #bookmarks, pos.state.bookmark, pos.position), vim.log.levels.INFO)
   return true
 end
 
+-- Previous bookmark
 function M.prev(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local state = get_state(bufnr)
+  local pstate = get_state(bufnr)
 
-  if not state.active then
+  if not pstate.active then
     vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
     return false
   end
 
-  local bookmarks = bookmark.list(bufnr)
-  local total = #bookmarks
-
-  if state.current_index <= 0 then
-    vim.notify('demo.nvim: Already at beginning (blank state)', vim.log.levels.INFO)
+  local prev_pos = state.find_bookmark_position(bufnr, -1)
+  if not prev_pos then
+    vim.notify('demo.nvim: No more bookmarks before', vim.log.levels.INFO)
     return false
   end
 
-  state.current_index = state.current_index - 1
+  state.goto_position(bufnr, prev_pos)
+  local pos = state.get_position(bufnr)
+  local bookmarks = state.get_bookmarks(bufnr)
 
-  if state.current_index == 0 then
-    highlight.clear(bufnr)
-    vim.notify(string.format('demo.nvim: [0/%d] (blank state)', total), vim.log.levels.INFO)
-  else
-    local bm = bookmarks[state.current_index]
-    highlight.set_all(bufnr, bm.highlights)
-    vim.notify(string.format('demo.nvim: [%d/%d] %s', state.current_index, total, bm.name), vim.log.levels.INFO)
+  -- Find which bookmark number this is
+  local bookmark_num = 0
+  for i, bm in ipairs(bookmarks) do
+    if bm.index == pos.state.index then
+      bookmark_num = i
+      break
+    end
   end
 
+  vim.notify(string.format('demo.nvim: Bookmark %d/%d "%s" (step %d)', bookmark_num, #bookmarks, pos.state.bookmark, pos.position), vim.log.levels.INFO)
   return true
 end
 
+-- Go to specific bookmark by name or step by number
 function M.goto_bookmark(bufnr, name_or_index)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local state = get_state(bufnr)
+  local pstate = get_state(bufnr)
 
-  if not state.active then
+  if not pstate.active then
     vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
     return false
   end
 
-  local bookmarks = bookmark.list(bufnr)
-  local total = #bookmarks
-  local target_index
+  local all_states = state.get_all(bufnr)
 
   if type(name_or_index) == 'number' then
-    if name_or_index < 0 or name_or_index > total then
-      vim.notify(string.format('demo.nvim: Invalid bookmark index %d', name_or_index), vim.log.levels.WARN)
+    -- Go to step number
+    if name_or_index < 0 or name_or_index > #all_states then
+      vim.notify(string.format('demo.nvim: Invalid step %d', name_or_index), vim.log.levels.WARN)
       return false
     end
-    target_index = name_or_index
+    state.goto_position(bufnr, name_or_index)
   else
-    -- Find by name
-    for i, bm in ipairs(bookmarks) do
-      if bm.name == name_or_index then
-        target_index = i
+    -- Find by bookmark name
+    local found = false
+    for i, s in ipairs(all_states) do
+      if s.bookmark == name_or_index then
+        state.goto_position(bufnr, i)
+        found = true
         break
       end
     end
-    if not target_index then
+    if not found then
       vim.notify(string.format('demo.nvim: Bookmark "%s" not found', name_or_index), vim.log.levels.WARN)
       return false
     end
   end
 
-  state.current_index = target_index
-
-  if target_index == 0 then
-    highlight.clear(bufnr)
-    vim.notify(string.format('demo.nvim: [0/%d] (blank state)', total), vim.log.levels.INFO)
+  local pos = state.get_position(bufnr)
+  if pos.position == 0 then
+    vim.notify(string.format('demo.nvim: Step 0/%d (blank)', pos.total), vim.log.levels.INFO)
   else
-    local bm = bookmarks[target_index]
-    highlight.set_all(bufnr, bm.highlights)
-    vim.notify(string.format('demo.nvim: [%d/%d] %s', target_index, total, bm.name), vim.log.levels.INFO)
+    local bookmark_str = pos.state and pos.state.bookmark and (' "' .. pos.state.bookmark .. '"') or ''
+    vim.notify(string.format('demo.nvim: Step %d/%d%s', pos.position, pos.total, bookmark_str), vim.log.levels.INFO)
   end
-
   return true
 end
 
 function M.get_info(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local state = get_state(bufnr)
-  local bookmarks = bookmark.list(bufnr)
+  local pstate = get_state(bufnr)
+  local pos = state.get_position(bufnr)
+  local bookmarks = state.get_bookmarks(bufnr)
 
   return {
-    active = state.active,
-    current_index = state.current_index,
-    total = #bookmarks,
-    current_name = state.current_index > 0 and bookmarks[state.current_index] and bookmarks[state.current_index].name or nil,
+    active = pstate.active,
+    position = pos.position,
+    total = pos.total,
+    current_state = pos.state,
+    bookmark_count = #bookmarks,
   }
 end
 

@@ -25,25 +25,34 @@ function M.get_repo_root()
   return nil, nil
 end
 
-function M.get_commit_id()
-  -- Try jj first: get the commit_id of the current working copy
-  local commit = run_cmd('jj log --no-graph -r @ -T "commit_id"')
-  if commit and commit ~= '' and #commit >= 8 then
-    return commit:sub(1, 12), 'jj'  -- Use first 12 chars for readability
+-- Get current commit SHA (short form)
+-- Uses git HEAD which is stable (unlike jj's @ which changes on every edit)
+function M.get_commit()
+  local _, vcs = M.get_repo_root()
+
+  if vcs == 'jj' then
+    local commit = run_cmd('git rev-parse HEAD')
+    if commit and commit ~= '' then
+      return commit:sub(1, 7)
+    end
+    commit = run_cmd('jj log --no-graph -r @- -T "commit_id"')
+    if commit and commit ~= '' then
+      return commit:sub(1, 7)
+    end
+  else
+    local commit = run_cmd('git rev-parse HEAD')
+    if commit and commit ~= '' then
+      return commit:sub(1, 7)
+    end
   end
-  -- Fallback to git
-  commit = run_cmd('git rev-parse HEAD')
-  if commit and commit ~= '' then
-    return commit:sub(1, 12), 'git'
-  end
-  return nil, nil
+
+  return nil
 end
 
 function M.get_relative_path(filepath)
   local root = M.get_repo_root()
   if not root then return filepath end
 
-  -- Normalize paths
   filepath = vim.fn.fnamemodify(filepath, ':p')
   root = vim.fn.fnamemodify(root, ':p')
 
@@ -61,18 +70,11 @@ function M.get_storage_dir()
   return root .. '/.demo'
 end
 
-function M.get_bookmark_path(filepath)
-  local commit = M.get_commit_id()
-  if not commit then
-    commit = 'uncommitted'
-  end
-
+function M.get_states_path(filepath)
   local rel_path = M.get_relative_path(filepath)
-  -- Replace path separators with underscores for flat storage
   local safe_name = rel_path:gsub('/', '__')
-
   local storage_dir = M.get_storage_dir()
-  return storage_dir .. '/' .. commit .. '/' .. safe_name .. '.txt'
+  return storage_dir .. '/' .. safe_name .. '.demo'
 end
 
 function M.ensure_dir(filepath)
@@ -82,124 +84,177 @@ function M.ensure_dir(filepath)
   end
 end
 
--- Parse a single highlight from storage format: "start_line:start_col-end_line:end_col:hlgroup"
-local function parse_highlight(str)
-  local pattern = '(%d+):(%d+)-(%d+):(%d+):(%S+)'
-  local start_line, start_col, end_line, end_col, hlgroup = str:match(pattern)
-  if start_line then
+-- Parse highlight line
+local function parse_highlight_line(line)
+  line = vim.trim(line)
+  if line == '' or line:match('^#') then
+    return nil
+  end
+
+  -- Try character range: "5:3-10:20 HlGroup"
+  local s_line, s_col, e_line, e_col, hlgroup = line:match('^(%d+):(%d+)-(%d+):(%d+)%s+(%S+)$')
+  if s_line then
     return {
-      start_line = tonumber(start_line),
-      end_line = tonumber(end_line),
+      start_line = tonumber(s_line),
+      start_col = tonumber(s_col),
+      end_line = tonumber(e_line),
+      end_col = tonumber(e_col),
       hlgroup = hlgroup,
     }
   end
+
+  -- Try line range: "5-10 HlGroup"
+  local start_l, end_l, hl = line:match('^(%d+)-(%d+)%s+(%S+)$')
+  if start_l then
+    return {
+      start_line = tonumber(start_l),
+      start_col = 0,
+      end_line = tonumber(end_l),
+      end_col = -1,
+      hlgroup = hl,
+    }
+  end
+
+  -- Try single line: "5 HlGroup"
+  local single_l, single_hl = line:match('^(%d+)%s+(%S+)$')
+  if single_l then
+    local ln = tonumber(single_l)
+    return {
+      start_line = ln,
+      start_col = 0,
+      end_line = ln,
+      end_col = -1,
+      hlgroup = single_hl,
+    }
+  end
+
   return nil
 end
 
--- Format a highlight for storage
+-- Format highlight for storage
 local function format_highlight(hl)
-  -- Using col 1 and 0 as placeholders since we highlight full lines
-  return string.format('%d:1-%d:0:%s', hl.start_line, hl.end_line, hl.hlgroup)
-end
-
-function M.parse_bookmark_line(line)
-  if line:match('^#') or line:match('^%s*$') then
-    return nil  -- Comment or empty line
-  end
-
-  local parts = vim.split(line, '|')
-  if #parts < 1 then return nil end
-
-  local name = parts[1]
-  local highlights = {}
-
-  for i = 2, #parts do
-    local hl = parse_highlight(parts[i])
-    if hl then
-      table.insert(highlights, hl)
+  if hl.end_col == -1 then
+    if hl.start_line == hl.end_line then
+      return string.format('%d %s', hl.start_line, hl.hlgroup)
+    else
+      return string.format('%d-%d %s', hl.start_line, hl.end_line, hl.hlgroup)
     end
+  else
+    return string.format('%d:%d-%d:%d %s',
+      hl.start_line, hl.start_col, hl.end_line, hl.end_col, hl.hlgroup)
   end
-
-  return {
-    name = name,
-    highlights = highlights,
-  }
 end
 
-function M.format_bookmark_line(name, highlights)
-  local parts = { name }
-  for _, hl in ipairs(highlights) do
-    table.insert(parts, format_highlight(hl))
+-- Parse section header: [index:bookmark @ commit] or [index @ commit]
+local function parse_section_header(line)
+  -- Try [index:bookmark @ commit]
+  local index, bookmark, commit = line:match('^%[(%d+):([^@%]]+)%s*@%s*([^%]]+)%]$')
+  if index then
+    return tonumber(index), vim.trim(bookmark), vim.trim(commit)
   end
-  return table.concat(parts, '|')
+
+  -- Try [index @ commit] (no bookmark)
+  index, commit = line:match('^%[(%d+)%s*@%s*([^%]]+)%]$')
+  if index then
+    return tonumber(index), nil, vim.trim(commit)
+  end
+
+  -- Try [index:bookmark] (no commit)
+  index, bookmark = line:match('^%[(%d+):([^%]]+)%]$')
+  if index then
+    return tonumber(index), vim.trim(bookmark), nil
+  end
+
+  -- Try [index] only
+  index = line:match('^%[(%d+)%]$')
+  if index then
+    return tonumber(index), nil, nil
+  end
+
+  return nil, nil, nil
 end
 
-function M.read_bookmarks(filepath)
-  local bookmark_path = M.get_bookmark_path(filepath)
-  if vim.fn.filereadable(bookmark_path) == 0 then
+function M.read_states(filepath)
+  local states_path = M.get_states_path(filepath)
+  if vim.fn.filereadable(states_path) == 0 then
     return {}
   end
 
-  local lines = vim.fn.readfile(bookmark_path)
-  local bookmarks = {}
+  local lines = vim.fn.readfile(states_path)
+  local states = {}
+  local current_state = nil
 
   for _, line in ipairs(lines) do
-    local bookmark = M.parse_bookmark_line(line)
-    if bookmark then
-      table.insert(bookmarks, bookmark)
+    local index, bookmark, commit = parse_section_header(line)
+    if index then
+      if current_state then
+        table.insert(states, current_state)
+      end
+      current_state = {
+        index = index,
+        bookmark = bookmark,
+        commit = commit,
+        highlights = {},
+      }
+    elseif current_state then
+      local hl = parse_highlight_line(line)
+      if hl then
+        table.insert(current_state.highlights, hl)
+      end
     end
   end
 
-  return bookmarks
+  if current_state then
+    table.insert(states, current_state)
+  end
+
+  -- Sort by index
+  table.sort(states, function(a, b) return a.index < b.index end)
+
+  return states
 end
 
-function M.write_bookmarks(filepath, bookmarks)
-  local bookmark_path = M.get_bookmark_path(filepath)
-  M.ensure_dir(bookmark_path)
+function M.write_states(filepath, states)
+  local states_path = M.get_states_path(filepath)
+  M.ensure_dir(states_path)
 
+  local rel_path = M.get_relative_path(filepath)
   local lines = {
-    '# demo.nvim bookmark file',
-    '# format: name|start:col-end:col:hlgroup|...',
-    '# reorder lines to change bookmark order',
+    '# demo.nvim states for ' .. rel_path,
+    '# Format: [index:bookmark @ commit] or [index @ commit]',
+    '# Bookmarks mark important steps. Reorder sections to change order.',
+    '',
   }
 
-  for _, bookmark in ipairs(bookmarks) do
-    table.insert(lines, M.format_bookmark_line(bookmark.name, bookmark.highlights))
-  end
-
-  vim.fn.writefile(lines, bookmark_path)
-  return bookmark_path
-end
-
-function M.has_uncommitted_changes()
-  -- Check jj first
-  local status = run_cmd('jj status')
-  if status then
-    -- jj status shows "Working copy changes:" if there are changes
-    if status:match('Working copy changes:') then
-      return true, 'jj'
+  for _, state in ipairs(states) do
+    local header
+    if state.bookmark and state.commit then
+      header = string.format('[%d:%s @ %s]', state.index, state.bookmark, state.commit)
+    elseif state.bookmark then
+      header = string.format('[%d:%s]', state.index, state.bookmark)
+    elseif state.commit then
+      header = string.format('[%d @ %s]', state.index, state.commit)
+    else
+      header = string.format('[%d]', state.index)
     end
-    return false, 'jj'
+    table.insert(lines, header)
+    for _, hl in ipairs(state.highlights) do
+      table.insert(lines, format_highlight(hl))
+    end
+    table.insert(lines, '')
   end
 
-  -- Fallback to git
-  status = run_cmd('git status --porcelain')
-  if status and status ~= '' then
-    return true, 'git'
-  end
-  return false, 'git'
+  vim.fn.writefile(lines, states_path)
+  return states_path
 end
 
 function M.get_vcs_info()
   local root, vcs = M.get_repo_root()
-  local commit, commit_vcs = M.get_commit_id()
-  local has_changes, changes_vcs = M.has_uncommitted_changes()
-
+  local commit = M.get_commit()
   return {
     root = root,
-    vcs = vcs or commit_vcs or changes_vcs,
+    vcs = vcs,
     commit = commit,
-    has_uncommitted = has_changes,
   }
 end
 

@@ -21,8 +21,6 @@ end, {
 vim.api.nvim_create_user_command('DemoHighlightLines', function(opts)
   local args = vim.split(opts.args, '%s+')
   local hlgroup = 'DemoHighlight1'
-
-  -- Parse range: either "10 20" or "10-20" or just use command range
   local start_line, end_line
 
   if opts.range == 2 then
@@ -33,14 +31,12 @@ vim.api.nvim_create_user_command('DemoHighlightLines', function(opts)
     end
   else
     if #args >= 2 then
-      -- Try "10 20 [hlgroup]" format
       start_line = tonumber(args[1])
       end_line = tonumber(args[2])
       if #args >= 3 then
         hlgroup = args[3]
       end
     elseif #args == 1 and args[1]:match('%d+%-%d+') then
-      -- Try "10-20" format
       local s, e = args[1]:match('(%d+)%-(%d+)')
       start_line = tonumber(s)
       end_line = tonumber(e)
@@ -73,19 +69,6 @@ end, {
   desc = 'Clear highlights on specified line (default: current line)',
 })
 
--- History commands
-vim.api.nvim_create_user_command('DemoUndo', function()
-  demo.undo()
-end, {
-  desc = 'Undo last highlight change',
-})
-
-vim.api.nvim_create_user_command('DemoRedo', function()
-  demo.redo()
-end, {
-  desc = 'Redo highlight change',
-})
-
 -- Bookmark commands
 vim.api.nvim_create_user_command('DemoBookmark', function(opts)
   if opts.args == '' then
@@ -94,8 +77,8 @@ vim.api.nvim_create_user_command('DemoBookmark', function(opts)
   end
   demo.bookmark(opts.args)
 end, {
-  nargs = 1,
-  desc = 'Save current highlights as a named bookmark',
+  nargs = '?',
+  desc = 'Bookmark current state with a name',
 })
 
 vim.api.nvim_create_user_command('DemoDeleteBookmark', function(opts)
@@ -106,20 +89,20 @@ vim.api.nvim_create_user_command('DemoDeleteBookmark', function(opts)
   demo.delete_bookmark(opts.args)
 end, {
   nargs = 1,
-  desc = 'Delete a named bookmark',
+  desc = 'Delete a bookmark by name',
 })
 
 vim.api.nvim_create_user_command('DemoList', function()
-  demo.list_bookmarks()
+  demo.list()
 end, {
-  desc = 'List all bookmarks for current file/commit',
+  desc = 'List all states and bookmarks',
 })
 
 vim.api.nvim_create_user_command('DemoReload', function()
-  demo.reload_bookmarks()
-  vim.notify('demo.nvim: Bookmarks reloaded from disk', vim.log.levels.INFO)
+  demo.reload()
+  vim.notify('demo.nvim: States reloaded from disk', vim.log.levels.INFO)
 end, {
-  desc = 'Reload bookmarks from disk (after manual edit)',
+  desc = 'Reload states from disk (after manual edit)',
 })
 
 -- Presenter commands
@@ -135,6 +118,13 @@ end, {
   desc = 'Stop presenter mode',
 })
 
+vim.api.nvim_create_user_command('DemoToggle', function()
+  demo.toggle()
+end, {
+  desc = 'Toggle presenter mode',
+})
+
+-- Bookmark navigation (jump between bookmarks)
 vim.api.nvim_create_user_command('DemoNext', function()
   demo.next()
 end, {
@@ -147,9 +137,21 @@ end, {
   desc = 'Go to previous bookmark in presenter mode',
 })
 
+-- Step navigation (every recorded state)
+vim.api.nvim_create_user_command('DemoNextStep', function()
+  demo.next_step()
+end, {
+  desc = 'Go to next step (any state) in presenter mode',
+})
+
+vim.api.nvim_create_user_command('DemoPrevStep', function()
+  demo.prev_step()
+end, {
+  desc = 'Go to previous step (any state) in presenter mode',
+})
+
 vim.api.nvim_create_user_command('DemoGoto', function(opts)
   local arg = opts.args
-  -- Try as number first
   local num = tonumber(arg)
   if num then
     demo.goto(num)
@@ -158,33 +160,38 @@ vim.api.nvim_create_user_command('DemoGoto', function(opts)
   end
 end, {
   nargs = 1,
-  desc = 'Jump to specific bookmark by name or index',
+  desc = 'Jump to specific bookmark by name or step by number',
 })
 
--- Info commands
+-- Info command
 vim.api.nvim_create_user_command('DemoInfo', function()
-  local pinfo = demo.presenter_info()
-  local hinfo = demo.history_info()
-
-  local lines = {
-    'Demo.nvim Status:',
-    string.format('  Presenter: %s', pinfo.active and 'active' or 'inactive'),
-  }
-
-  if pinfo.active then
-    local current = pinfo.current_index == 0 and '(blank)' or pinfo.current_name or tostring(pinfo.current_index)
-    table.insert(lines, string.format('  Current slide: %d/%d (%s)', pinfo.current_index, pinfo.total, current))
-  end
-
-  table.insert(lines, string.format('  History: %d states, at position %d', hinfo.total, hinfo.current))
-
-  vim.notify(table.concat(lines, '\n'), vim.log.levels.INFO)
+  demo.info()
 end, {
   desc = 'Show demo.nvim status info',
 })
 
-vim.api.nvim_create_user_command('DemoVcsInfo', function()
-  demo.vcs_info()
-end, {
-  desc = 'Show VCS (jj/git) info',
-})
+-- Keymaps
+-- <leader>dh - Highlight in visual mode
+vim.keymap.set('v', '<leader>dh', ':DemoHighlight<CR>', { desc = 'Demo: Highlight selection' })
+
+-- <leader>db - Bookmark (prompts for name)
+vim.keymap.set('n', '<leader>db', ':DemoBookmark ', { desc = 'Demo: Bookmark current state' })
+
+-- <leader>dn - Next bookmark
+vim.keymap.set('n', '<leader>dn', ':DemoNext<CR>', { desc = 'Demo: Next bookmark' })
+
+-- <leader>dp - Previous bookmark
+vim.keymap.set('n', '<leader>dp', ':DemoPrev<CR>', { desc = 'Demo: Previous bookmark' })
+
+-- <leader>ds - Start/Stop toggle
+vim.keymap.set('n', '<leader>ds', ':DemoToggle<CR>', { desc = 'Demo: Toggle presenter' })
+
+-- <leader>dc - Clear all highlights
+vim.keymap.set('n', '<leader>dc', ':DemoClear<CR>', { desc = 'Demo: Clear highlights' })
+
+-- <leader>dl - List states
+vim.keymap.set('n', '<leader>dl', ':DemoList<CR>', { desc = 'Demo: List states' })
+
+-- Bonus: step navigation with Shift
+vim.keymap.set('n', '<leader>dN', ':DemoNextStep<CR>', { desc = 'Demo: Next step' })
+vim.keymap.set('n', '<leader>dP', ':DemoPrevStep<CR>', { desc = 'Demo: Previous step' })
