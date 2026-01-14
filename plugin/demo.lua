@@ -193,11 +193,11 @@ end, {
 })
 
 -- Keymaps
--- <leader>dh - Highlight in visual mode (default highlight group)
-vim.keymap.set('v', '<leader>dh', ':DemoHighlight<CR>', { desc = 'Demo: Highlight selection' })
+-- <leader>dh - Highlight in visual mode (prompts for highlight group)
+vim.keymap.set('v', '<leader>dh', ':DemoHighlight ', { desc = 'Demo: Highlight selection with group' })
 
--- <leader>dH - Highlight in visual mode (prompts for highlight group)
-vim.keymap.set('v', '<leader>dH', ':DemoHighlight ', { desc = 'Demo: Highlight selection with group' })
+-- <leader>dH - Highlight in visual mode (default highlight group)
+vim.keymap.set('v', '<leader>dH', ':DemoHighlight<CR>', { desc = 'Demo: Highlight selection' })
 
 -- <leader>db - Bookmark (prompts for name)
 vim.keymap.set('n', '<leader>db', ':DemoBookmark ', { desc = 'Demo: Bookmark current state' })
