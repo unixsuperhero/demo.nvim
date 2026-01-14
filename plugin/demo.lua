@@ -195,3 +195,9 @@ vim.keymap.set('n', '<leader>dl', ':DemoList<CR>', { desc = 'Demo: List states' 
 -- Bonus: step navigation with Shift
 vim.keymap.set('n', '<leader>dN', ':DemoNextStep<CR>', { desc = 'Demo: Next step' })
 vim.keymap.set('n', '<leader>dP', ':DemoPrevStep<CR>', { desc = 'Demo: Previous step' })
+
+-- <leader>dr - Reload states from disk
+vim.keymap.set('n', '<leader>dr', ':DemoReload<CR>', { desc = 'Demo: Reload states' })
+
+-- <leader>dg - Goto bookmark/step (prompts for name or number)
+vim.keymap.set('n', '<leader>dg', ':DemoGoto ', { desc = 'Demo: Goto bookmark/step' })

@@ -41,6 +41,7 @@ plugin/demo.lua  -- User commands and keymaps
 - Every highlight change creates a new numbered state
 - Bookmarks are labels on states (`:intro` suffix)
 - All states across all commits in one file for easy editing
+- Presenter filters to current commit: switching git commits shows different highlights
 
 ## Key Commands
 

@@ -24,12 +24,13 @@ function M.start(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local pstate = get_state(bufnr)
 
-  -- Load states from disk
+  -- Load states from disk and filter to current commit
   state.load(bufnr)
-  local pos = state.get_position(bufnr)
+  local filtered = state.filter_to_commit(bufnr)
 
-  if pos.total == 0 then
-    vim.notify('demo.nvim: No states recorded for this file', vim.log.levels.WARN)
+  if #filtered == 0 then
+    local pos = state.get_position(bufnr)
+    vim.notify(string.format('demo.nvim: No states for current commit (commit: %s)', pos.commit or 'none'), vim.log.levels.WARN)
     return false
   end
 
@@ -39,7 +40,8 @@ function M.start(bufnr)
   state.goto_position(bufnr, 0)
 
   local bookmarks = state.get_bookmarks(bufnr)
-  vim.notify(string.format('demo.nvim: Presenter started (%d steps, %d bookmarks)', pos.total, #bookmarks), vim.log.levels.INFO)
+  local pos = state.get_position(bufnr)
+  vim.notify(string.format('demo.nvim: Presenter started @ %s (%d steps, %d bookmarks)', pos.commit or 'none', #filtered, #bookmarks), vim.log.levels.INFO)
   return true
 end
 
@@ -165,8 +167,17 @@ function M.prev(bufnr)
 
   local prev_pos = state.find_bookmark_position(bufnr, -1)
   if not prev_pos then
-    vim.notify('demo.nvim: No more bookmarks before', vim.log.levels.INFO)
-    return false
+    -- No more bookmarks before - go to position 0 (blank/clear)
+    local pos = state.get_position(bufnr)
+    if pos.position <= 0 then
+      vim.notify('demo.nvim: Already at beginning', vim.log.levels.INFO)
+      return false
+    end
+    state.goto_position(bufnr, 0)
+    local bookmarks = state.get_bookmarks(bufnr)
+    pos = state.get_position(bufnr)
+    vim.notify(string.format('demo.nvim: Step 0/%d (blank)', pos.total), vim.log.levels.INFO)
+    return true
   end
 
   state.goto_position(bufnr, prev_pos)

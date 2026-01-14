@@ -1,0 +1,22 @@
+# demo.nvim states for CLAUDE.md
+# Format: [index:bookmark @ commit] or [index @ commit]
+# Bookmarks mark important steps. Reorder sections to change order.
+
+[1:a @ fc6c78b]
+3:5-3:18 DemoHighlight1
+
+[2:b @ fc6c78b]
+3:5-3:18 DemoHighlight1
+7:5-7:21 DemoHighlight1
+
+[3 @ fc6c78b]
+3:5-3:18 DemoHighlight1
+7:5-7:21 DemoHighlight1
+13:5-13:28 DemoHighlight1
+
+[4:e @ fc6c78b]
+3:5-3:18 DemoHighlight1
+7:5-7:21 DemoHighlight1
+13:5-13:28 DemoHighlight1
+15-17 DemoHighlight1
+

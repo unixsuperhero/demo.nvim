@@ -56,36 +56,61 @@ end
 
 function M.list()
   local all_states = state.get_all()
-  local bookmarks = state.get_bookmarks()
+  local filtered = state.get_filtered()
   local pos = state.get_position()
-
-  if #all_states == 0 then
-    vim.notify('demo.nvim: No states recorded for this file', vim.log.levels.INFO)
-    return
-  end
 
   local filepath = vim.api.nvim_buf_get_name(0)
   local rel_path = storage.get_relative_path(filepath)
   local current_commit = storage.get_commit()
 
+  -- Ensure filtered is populated for current commit
+  if #filtered == 0 and #all_states > 0 then
+    filtered = state.filter_to_commit()
+    pos = state.get_position()
+  end
+
+  if #filtered == 0 then
+    vim.notify(string.format('demo.nvim: No states for commit %s', current_commit or 'none'), vim.log.levels.INFO)
+    return
+  end
+
+  -- Count bookmarks in filtered set
+  local bookmark_count = 0
+  for _, s in ipairs(filtered) do
+    if s.bookmark then bookmark_count = bookmark_count + 1 end
+  end
+
   local lines = {
-    'States for ' .. rel_path .. ' (commit: ' .. (current_commit or 'none') .. '):',
-    string.format('Total: %d steps, %d bookmarks, current position: %d', #all_states, #bookmarks, pos.position),
+    'States for ' .. rel_path,
+    string.format('Commit: %s (%d steps, %d bookmarks)', current_commit or 'none', #filtered, bookmark_count),
     '',
   }
 
-  for i, s in ipairs(all_states) do
-    local marker = (i == pos.position) and '>' or ' '
+  -- Build a set of current state indices for quick lookup
+  local current_state_index = pos.state and pos.state.index or nil
+
+  for i, s in ipairs(filtered) do
+    local is_current_state = (s.index == current_state_index)
+    local marker = is_current_state and '>' or ' '
     local bookmark_str = s.bookmark and (' "' .. s.bookmark .. '"') or ''
-    local commit_str = s.commit and (' @ ' .. s.commit) or ''
-    table.insert(lines, string.format('%s %d.%s%s (%d highlights)', marker, s.index, bookmark_str, commit_str, #s.highlights))
+    table.insert(lines, string.format('%s %d.%s (%d highlights)', marker, i, bookmark_str, #s.highlights))
   end
+
+  table.insert(lines, '')
+  table.insert(lines, '(> = current state)')
 
   vim.notify(table.concat(lines, '\n'), vim.log.levels.INFO)
 end
 
 function M.reload()
-  return state.reload()
+  highlight.clear()
+  local cache = state.reload()
+  if cache then
+    -- Reset position to 0 (blank) and filter to current commit
+    state.filter_to_commit()
+    cache.current_position = 0
+  end
+  return cache
 end
 
 -- Presenter API
@@ -124,14 +149,16 @@ end
 function M.info()
   local pinfo = presenter.get_info()
   local vcs = storage.get_vcs_info()
+  local all_states = state.get_all()
 
   local lines = {
     'Demo.nvim Status:',
     string.format('  VCS: %s', vcs.vcs or 'none'),
-    string.format('  Commit: %s', vcs.commit or 'N/A'),
+    string.format('  Current commit: %s', vcs.commit or 'N/A'),
     string.format('  Presenter: %s', pinfo.active and 'active' or 'inactive'),
-    string.format('  Position: %d/%d steps', pinfo.position, pinfo.total),
-    string.format('  Bookmarks: %d', pinfo.bookmark_count),
+    string.format('  Steps (this commit): %d/%d', pinfo.position, pinfo.total),
+    string.format('  Steps (all commits): %d', #all_states),
+    string.format('  Bookmarks (this commit): %d', pinfo.bookmark_count),
   }
 
   if pinfo.current_state and pinfo.current_state.bookmark then
