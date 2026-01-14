@@ -201,3 +201,18 @@ vim.keymap.set('n', '<leader>dr', ':DemoReload<CR>', { desc = 'Demo: Reload stat
 
 -- <leader>dg - Goto bookmark/step (prompts for name or number)
 vim.keymap.set('n', '<leader>dg', ':DemoGoto ', { desc = 'Demo: Goto bookmark/step' })
+
+-- Autocmd: Clear highlights and reset state when file contents change from disk
+vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileChangedShellPost' }, {
+  group = vim.api.nvim_create_augroup('DemoNvimFileChange', { clear = true }),
+  callback = function(ev)
+    local highlight = require('demo.highlight')
+    local state = require('demo.state')
+    highlight.clear(ev.buf)
+    local cache = state.get_cache(ev.buf)
+    if cache then
+      cache.current_position = 0
+    end
+  end,
+  desc = 'Clear demo highlights when file is reloaded from disk',
+})
