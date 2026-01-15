@@ -63,11 +63,17 @@ function M.get_relative_path(filepath)
 end
 
 function M.get_storage_dir()
+  local data_dir = vim.fn.stdpath('data') .. '/demo'
   local root = M.get_repo_root()
   if not root then
-    return vim.fn.getcwd() .. '/.demo'
+    -- Use cwd as fallback, hash it for safety
+    local cwd = vim.fn.getcwd()
+    local safe_name = cwd:gsub('/', '__'):gsub(':', '_')
+    return data_dir .. '/' .. safe_name
   end
-  return root .. '/.demo'
+  -- Use repo root path to create unique folder per repo
+  local safe_name = root:gsub('/', '__'):gsub(':', '_')
+  return data_dir .. '/' .. safe_name
 end
 
 function M.get_states_path(filepath)
