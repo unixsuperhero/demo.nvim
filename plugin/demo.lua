@@ -229,7 +229,8 @@ end, {
 })
 
 -- Keymaps
--- <leader>dh - Highlight in visual mode (prompts for highlight group)
+-- <leader>dh - Highlight (current line in normal, selection in visual)
+vim.keymap.set('n', '<leader>dh', ':DemoHighlight ', { desc = 'Demo: Highlight current line with group' })
 vim.keymap.set('v', '<leader>dh', ':DemoHighlight ', { desc = 'Demo: Highlight selection with group' })
 
 -- <leader>dH - Highlight in visual mode (default highlight group)
