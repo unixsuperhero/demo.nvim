@@ -44,13 +44,13 @@ function M.start(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local pstate = get_state(bufnr)
 
-  -- Load states from disk and filter to current commit
+  -- Load states from disk and filter to current blob
   state.load(bufnr)
-  local filtered = state.filter_to_commit(bufnr)
+  local filtered = state.filter_to_blob(bufnr)
 
   if #filtered == 0 then
     local pos = state.get_position(bufnr)
-    vim.notify(string.format('demo.nvim: No states for current commit (commit: %s)', pos.commit or 'none'), vim.log.levels.WARN)
+    vim.notify(string.format('demo.nvim: No states for current blob (blob: %s)', pos.blob or 'none'), vim.log.levels.WARN)
     return false
   end
 
@@ -62,7 +62,7 @@ function M.start(bufnr)
 
   local bookmarks = state.get_bookmarks(bufnr)
   local pos = state.get_position(bufnr)
-  vim.notify(string.format('demo.nvim: Presenter started @ %s (%d steps, %d bookmarks)', pos.commit or 'none', #filtered, #bookmarks), vim.log.levels.INFO)
+  vim.notify(string.format('demo.nvim: Presenter started @ %s (%d steps, %d bookmarks)', pos.blob or 'none', #filtered, #bookmarks), vim.log.levels.INFO)
   return true
 end
 

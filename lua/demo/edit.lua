@@ -87,8 +87,8 @@ local function state_to_line(s)
   return prefix .. '  ' .. table.concat(hl_strs, ', ')
 end
 
--- Parse display line back to state (without commit, that's preserved separately)
-local function line_to_state(line, commit)
+-- Parse display line back to state (without blob, that's preserved separately)
+local function line_to_state(line, blob)
   -- Parse: "1  highlights..." or "1:bookmark  highlights..."
   local prefix, rest = line:match('^([^%s]+)%s%s(.*)$')
   if not prefix then
@@ -124,7 +124,7 @@ local function line_to_state(line, commit)
   return {
     index = index,
     bookmark = bookmark,
-    commit = commit,
+    blob = blob,
     highlights = highlights,
   }
 end
@@ -143,7 +143,7 @@ function M.render(edit_bufnr)
   end
 
   if #lines == 0 then
-    lines = { '# No states for current commit. Add highlights first.' }
+    lines = { '# No states for current blob. Add highlights first.' }
   end
 
   vim.bo[edit_bufnr].modifiable = true
@@ -162,11 +162,11 @@ function M.parse(edit_bufnr)
 
   local lines = vim.api.nvim_buf_get_lines(edit_bufnr, 0, -1, false)
   local new_states = {}
-  local commit = cache.current_commit
+  local blob = cache.current_blob
 
   for _, line in ipairs(lines) do
     if not line:match('^#') and vim.trim(line) ~= '' then
-      local s = line_to_state(line, commit)
+      local s = line_to_state(line, blob)
       if s then
         table.insert(new_states, s)
       end
@@ -191,11 +191,11 @@ function M.save(edit_bufnr)
     s.index = i
   end
 
-  -- Remove old states for this commit from cache.states
-  local current_commit = cache.current_commit
+  -- Remove old states for this blob from cache.states
+  local current_blob = cache.current_blob
   local other_states = {}
   for _, s in ipairs(cache.states) do
-    if s.commit ~= current_commit then
+    if s.blob ~= current_blob then
       table.insert(other_states, s)
     end
   end
@@ -255,7 +255,7 @@ function M.preview_line(edit_bufnr, line_nr)
   local cache = state.get_cache(info.source_bufnr)
   if not cache then return end
 
-  local s = line_to_state(line, cache.current_commit)
+  local s = line_to_state(line, cache.current_blob)
   if s then
     highlight.set_all(info.source_bufnr, s.highlights)
   else
@@ -416,16 +416,16 @@ function M.open(source_bufnr)
     cache = state.get_cache(source_bufnr)
   end
   if cache and #cache.filtered_states == 0 then
-    state.filter_to_commit(source_bufnr)
+    state.filter_to_blob(source_bufnr)
     cache = state.get_cache(source_bufnr)
   end
 
   local rel_path = storage.get_relative_path(filepath)
-  local commit = cache and cache.current_commit or 'none'
+  local blob = cache and cache.current_blob or 'none'
 
   -- Create edit buffer
   local edit_bufnr = vim.api.nvim_create_buf(false, true)
-  local bufname = string.format('demo://%s @ %s', rel_path, commit)
+  local bufname = string.format('demo://%s @ %s', rel_path, blob)
   vim.api.nvim_buf_set_name(edit_bufnr, bufname)
 
   -- Store info

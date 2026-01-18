@@ -25,7 +25,7 @@ function M.get_repo_root()
   return nil, nil
 end
 
--- Get current commit SHA (short form)
+-- Get current commit SHA (short form) - kept for backwards compatibility
 -- Uses git HEAD which is stable (unlike jj's @ which changes on every edit)
 function M.get_commit()
   local _, vcs = M.get_repo_root()
@@ -48,6 +48,28 @@ function M.get_commit()
 
   return nil
 end
+
+-- Get blob hash for a file (content-based identifier)
+-- This identifies the file content, not the commit
+function M.get_blob_hash(filepath)
+  if not filepath or filepath == '' then
+    return nil
+  end
+
+  -- Expand to absolute path
+  filepath = vim.fn.fnamemodify(filepath, ':p')
+
+  -- Use git hash-object to get the blob hash of the file's current content
+  local hash = run_cmd('git hash-object "' .. filepath .. '"')
+  if hash and hash ~= '' then
+    return hash:sub(1, 7)
+  end
+
+  return nil
+end
+
+-- Alias for get_blob_hash - this is now the primary identifier
+M.get_file_id = M.get_blob_hash
 
 function M.get_relative_path(filepath)
   local root = M.get_repo_root()
@@ -151,21 +173,22 @@ local function format_highlight(hl)
   end
 end
 
--- Parse section header: [index:bookmark @ commit] or [index @ commit]
+-- Parse section header: [index:bookmark @ blob] or [index @ blob]
+-- Also supports legacy format with commit hashes (treated same as blob)
 local function parse_section_header(line)
-  -- Try [index:bookmark @ commit]
-  local index, bookmark, commit = line:match('^%[(%d+):([^@%]]+)%s*@%s*([^%]]+)%]$')
+  -- Try [index:bookmark @ blob]
+  local index, bookmark, blob = line:match('^%[(%d+):([^@%]]+)%s*@%s*([^%]]+)%]$')
   if index then
-    return tonumber(index), vim.trim(bookmark), vim.trim(commit)
+    return tonumber(index), vim.trim(bookmark), vim.trim(blob)
   end
 
-  -- Try [index @ commit] (no bookmark)
-  index, commit = line:match('^%[(%d+)%s*@%s*([^%]]+)%]$')
+  -- Try [index @ blob] (no bookmark)
+  index, blob = line:match('^%[(%d+)%s*@%s*([^%]]+)%]$')
   if index then
-    return tonumber(index), nil, vim.trim(commit)
+    return tonumber(index), nil, vim.trim(blob)
   end
 
-  -- Try [index:bookmark] (no commit)
+  -- Try [index:bookmark] (no blob)
   index, bookmark = line:match('^%[(%d+):([^%]]+)%]$')
   if index then
     return tonumber(index), vim.trim(bookmark), nil
@@ -191,7 +214,7 @@ function M.read_states(filepath)
   local current_state = nil
 
   for _, line in ipairs(lines) do
-    local index, bookmark, commit = parse_section_header(line)
+    local index, bookmark, blob = parse_section_header(line)
     if index then
       if current_state then
         table.insert(states, current_state)
@@ -199,7 +222,7 @@ function M.read_states(filepath)
       current_state = {
         index = index,
         bookmark = bookmark,
-        commit = commit,
+        blob = blob,
         highlights = {},
       }
     elseif current_state then
@@ -227,19 +250,19 @@ function M.write_states(filepath, states)
   local rel_path = M.get_relative_path(filepath)
   local lines = {
     '# demo.nvim states for ' .. rel_path,
-    '# Format: [index:bookmark @ commit] or [index @ commit]',
+    '# Format: [index:bookmark @ blob] or [index @ blob]',
     '# Bookmarks mark important steps. Reorder sections to change order.',
     '',
   }
 
   for _, state in ipairs(states) do
     local header
-    if state.bookmark and state.commit then
-      header = string.format('[%d:%s @ %s]', state.index, state.bookmark, state.commit)
+    if state.bookmark and state.blob then
+      header = string.format('[%d:%s @ %s]', state.index, state.bookmark, state.blob)
     elseif state.bookmark then
       header = string.format('[%d:%s]', state.index, state.bookmark)
-    elseif state.commit then
-      header = string.format('[%d @ %s]', state.index, state.commit)
+    elseif state.blob then
+      header = string.format('[%d @ %s]', state.index, state.blob)
     else
       header = string.format('[%d]', state.index)
     end
@@ -262,6 +285,132 @@ function M.get_vcs_info()
     vcs = vcs,
     commit = commit,
   }
+end
+
+-- Named sets functionality
+
+-- Get the directory for named sets
+function M.get_sets_dir()
+  local storage_dir = M.get_storage_dir()
+  return storage_dir .. '/sets'
+end
+
+-- Get path for a named set
+function M.get_set_path(filepath, set_name)
+  local rel_path = M.get_relative_path(filepath)
+  local safe_name = rel_path:gsub('/', '__')
+  local sets_dir = M.get_sets_dir()
+  return sets_dir .. '/' .. safe_name .. '.' .. set_name .. '.demo'
+end
+
+-- List all named sets for a file
+function M.list_sets(filepath)
+  local rel_path = M.get_relative_path(filepath)
+  local safe_name = rel_path:gsub('/', '__')
+  local sets_dir = M.get_sets_dir()
+
+  if vim.fn.isdirectory(sets_dir) == 0 then
+    return {}
+  end
+
+  local pattern = sets_dir .. '/' .. safe_name .. '.*.demo'
+  local files = vim.fn.glob(pattern, false, true)
+  local sets = {}
+
+  for _, file in ipairs(files) do
+    -- Extract set name from filename: safe_name.{set_name}.demo
+    local basename = vim.fn.fnamemodify(file, ':t')
+    local set_name = basename:match('^' .. vim.pesc(safe_name) .. '%.(.+)%.demo$')
+    if set_name then
+      table.insert(sets, set_name)
+    end
+  end
+
+  table.sort(sets)
+  return sets
+end
+
+-- Save states to a named set
+function M.save_set(filepath, set_name, states)
+  local set_path = M.get_set_path(filepath, set_name)
+  M.ensure_dir(set_path)
+
+  local rel_path = M.get_relative_path(filepath)
+  local lines = {
+    '# demo.nvim set "' .. set_name .. '" for ' .. rel_path,
+    '# Format: [index:bookmark @ blob] or [index @ blob]',
+    '',
+  }
+
+  for _, state in ipairs(states) do
+    local header
+    if state.bookmark and state.blob then
+      header = string.format('[%d:%s @ %s]', state.index, state.bookmark, state.blob)
+    elseif state.bookmark then
+      header = string.format('[%d:%s]', state.index, state.bookmark)
+    elseif state.blob then
+      header = string.format('[%d @ %s]', state.index, state.blob)
+    else
+      header = string.format('[%d]', state.index)
+    end
+    table.insert(lines, header)
+    for _, hl in ipairs(state.highlights) do
+      table.insert(lines, format_highlight(hl))
+    end
+    table.insert(lines, '')
+  end
+
+  vim.fn.writefile(lines, set_path)
+  return set_path
+end
+
+-- Load states from a named set
+function M.load_set(filepath, set_name)
+  local set_path = M.get_set_path(filepath, set_name)
+  if vim.fn.filereadable(set_path) == 0 then
+    return nil
+  end
+
+  local lines = vim.fn.readfile(set_path)
+  local states = {}
+  local current_state = nil
+
+  for _, line in ipairs(lines) do
+    local index, bookmark, blob = parse_section_header(line)
+    if index then
+      if current_state then
+        table.insert(states, current_state)
+      end
+      current_state = {
+        index = index,
+        bookmark = bookmark,
+        blob = blob,
+        highlights = {},
+      }
+    elseif current_state then
+      local hl = parse_highlight_line(line)
+      if hl then
+        table.insert(current_state.highlights, hl)
+      end
+    end
+  end
+
+  if current_state then
+    table.insert(states, current_state)
+  end
+
+  table.sort(states, function(a, b) return a.index < b.index end)
+  return states
+end
+
+-- Delete a named set
+function M.delete_set(filepath, set_name)
+  local set_path = M.get_set_path(filepath, set_name)
+  if vim.fn.filereadable(set_path) == 1 then
+    vim.fn.delete(set_path)
+    return true
+  end
+  return false
 end
 
 return M

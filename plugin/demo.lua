@@ -93,7 +93,7 @@ end, {
 vim.api.nvim_create_user_command('DemoReset', function()
   demo.reset()
 end, {
-  desc = 'Delete all states for current commit (start over)',
+  desc = 'Delete all states for current file blob (start over)',
 })
 
 vim.api.nvim_create_user_command('DemoClearLine', function(opts)
@@ -228,6 +228,74 @@ end, {
   desc = 'Show demo.nvim status info',
 })
 
+-- Named sets commands
+local function complete_sets(arg_lead, cmd_line, cursor_pos)
+  local sets = demo.list_sets()
+  if arg_lead == '' then
+    return sets
+  end
+  local matches = {}
+  for _, s in ipairs(sets) do
+    if s:lower():find(arg_lead:lower(), 1, true) then
+      table.insert(matches, s)
+    end
+  end
+  return matches
+end
+
+vim.api.nvim_create_user_command('DemoSaveSet', function(opts)
+  if opts.args == '' then
+    vim.notify('demo.nvim: Usage: :DemoSaveSet {name}', vim.log.levels.ERROR)
+    return
+  end
+  demo.save_set(opts.args)
+end, {
+  nargs = 1,
+  complete = complete_sets,
+  desc = 'Save current states to a named set',
+})
+
+vim.api.nvim_create_user_command('DemoLoadSet', function(opts)
+  if opts.args == '' then
+    -- If no argument, try to use telescope
+    local ok, telescope = pcall(require, 'telescope')
+    if ok then
+      require('demo.telescope').pick_set()
+    else
+      vim.notify('demo.nvim: Usage: :DemoLoadSet {name} (or install telescope for picker)', vim.log.levels.ERROR)
+    end
+    return
+  end
+  demo.load_set(opts.args)
+end, {
+  nargs = '?',
+  complete = complete_sets,
+  desc = 'Load states from a named set (uses telescope picker if no arg)',
+})
+
+vim.api.nvim_create_user_command('DemoListSets', function()
+  local sets = demo.list_sets()
+  if #sets == 0 then
+    vim.notify('demo.nvim: No saved sets for this file', vim.log.levels.INFO)
+    return
+  end
+  vim.notify('demo.nvim: Saved sets:\n  ' .. table.concat(sets, '\n  '), vim.log.levels.INFO)
+end, {
+  desc = 'List all saved sets for current file',
+})
+
+vim.api.nvim_create_user_command('DemoDeleteSet', function(opts)
+  if opts.args == '' then
+    vim.notify('demo.nvim: Usage: :DemoDeleteSet {name}', vim.log.levels.ERROR)
+    return
+  end
+  demo.delete_set(opts.args)
+end, {
+  nargs = 1,
+  complete = complete_sets,
+  desc = 'Delete a named set',
+})
+
 -- Keymaps
 -- <leader>dh - Highlight (current line in normal, selection in visual)
 vim.keymap.set('n', '<leader>dh', ':DemoHighlight ', { desc = 'Demo: Highlight current line with group' })
@@ -268,7 +336,7 @@ vim.keymap.set('n', '<leader>dg', ':DemoGoto ', { desc = 'Demo: Goto bookmark/st
 -- <leader>de - Edit states interactively
 vim.keymap.set('n', '<leader>de', ':DemoEdit<CR>', { desc = 'Demo: Edit states' })
 
--- <leader>dR - Reset (delete all states for current commit)
+-- <leader>dR - Reset (delete all states for current blob)
 vim.keymap.set('n', '<leader>dR', ':DemoReset<CR>', { desc = 'Demo: Reset (delete all states)' })
 
 -- Autocmd: Clear highlights and reset state when file contents change from disk

@@ -70,16 +70,16 @@ function M.list()
 
   local filepath = vim.api.nvim_buf_get_name(0)
   local rel_path = storage.get_relative_path(filepath)
-  local current_commit = storage.get_commit()
+  local current_blob = storage.get_blob_hash(filepath)
 
-  -- Ensure filtered is populated for current commit
+  -- Ensure filtered is populated for current blob
   if #filtered == 0 and #all_states > 0 then
-    filtered = state.filter_to_commit()
+    filtered = state.filter_to_blob()
     pos = state.get_position()
   end
 
   if #filtered == 0 then
-    vim.notify(string.format('demo.nvim: No states for commit %s', current_commit or 'none'), vim.log.levels.INFO)
+    vim.notify(string.format('demo.nvim: No states for blob %s', current_blob or 'none'), vim.log.levels.INFO)
     return
   end
 
@@ -91,7 +91,7 @@ function M.list()
 
   local lines = {
     'States for ' .. rel_path,
-    string.format('Commit: %s (%d steps, %d bookmarks)', current_commit or 'none', #filtered, bookmark_count),
+    string.format('Blob: %s (%d steps, %d bookmarks)', current_blob or 'none', #filtered, bookmark_count),
     '',
   }
 
@@ -115,8 +115,8 @@ function M.reload()
   highlight.clear()
   local cache = state.reload()
   if cache then
-    -- Reset position to 0 (blank) and filter to current commit
-    state.filter_to_commit()
+    -- Reset position to 0 (blank) and filter to current blob
+    state.filter_to_blob()
     cache.current_position = 0
   end
   return cache
@@ -159,15 +159,17 @@ function M.info()
   local pinfo = presenter.get_info()
   local vcs = storage.get_vcs_info()
   local all_states = state.get_all()
+  local filepath = vim.api.nvim_buf_get_name(0)
+  local blob = storage.get_blob_hash(filepath)
 
   local lines = {
     'Demo.nvim Status:',
     string.format('  VCS: %s', vcs.vcs or 'none'),
-    string.format('  Current commit: %s', vcs.commit or 'N/A'),
+    string.format('  File blob: %s', blob or 'N/A'),
     string.format('  Presenter: %s', pinfo.active and 'active' or 'inactive'),
-    string.format('  Steps (this commit): %d/%d', pinfo.position, pinfo.total),
-    string.format('  Steps (all commits): %d', #all_states),
-    string.format('  Bookmarks (this commit): %d', pinfo.bookmark_count),
+    string.format('  Steps (this blob): %d/%d', pinfo.position, pinfo.total),
+    string.format('  Steps (all blobs): %d', #all_states),
+    string.format('  Bookmarks (this blob): %d', pinfo.bookmark_count),
   }
 
   if pinfo.current_state and pinfo.current_state.bookmark then
@@ -176,6 +178,23 @@ function M.info()
 
   vim.notify(table.concat(lines, '\n'), vim.log.levels.INFO)
   return pinfo
+end
+
+-- Named sets API
+function M.save_set(name)
+  return state.save_set(nil, name)
+end
+
+function M.load_set(name)
+  return state.load_set(nil, name)
+end
+
+function M.list_sets()
+  return state.list_sets()
+end
+
+function M.delete_set(name)
+  return state.delete_set(nil, name)
 end
 
 -- Direct module access
