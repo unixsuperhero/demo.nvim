@@ -6,6 +6,26 @@ local M = {}
 -- Presenter state per buffer
 local presenter_state = {}
 
+-- Buffer-local mappings for presenter mode
+local presenter_mappings = {
+  { 'n', 'j', '<cmd>DemoNext<cr>', 'Next bookmark' },
+  { 'n', 'k', '<cmd>DemoPrev<cr>', 'Previous bookmark' },
+  { 'n', 'l', '<cmd>DemoNextStep<cr>', 'Next step' },
+  { 'n', 'h', '<cmd>DemoPrevStep<cr>', 'Previous step' },
+}
+
+local function set_mappings(bufnr)
+  for _, map in ipairs(presenter_mappings) do
+    vim.keymap.set(map[1], map[2], map[3], { buffer = bufnr, desc = 'Demo: ' .. map[4] })
+  end
+end
+
+local function unset_mappings(bufnr)
+  for _, map in ipairs(presenter_mappings) do
+    pcall(vim.keymap.del, map[1], map[2], { buffer = bufnr })
+  end
+end
+
 local function get_state(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   if not presenter_state[bufnr] then
@@ -35,6 +55,7 @@ function M.start(bufnr)
   end
 
   pstate.active = true
+  set_mappings(bufnr)
 
   -- Start at position 0 (blank)
   state.goto_position(bufnr, 0)
@@ -55,6 +76,7 @@ function M.stop(bufnr)
   end
 
   pstate.active = false
+  unset_mappings(bufnr)
   highlight.clear(bufnr)
 
   vim.notify('demo.nvim: Presenter stopped', vim.log.levels.INFO)
