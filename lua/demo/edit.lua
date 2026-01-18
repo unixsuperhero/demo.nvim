@@ -441,9 +441,11 @@ function M.open(source_bufnr)
     M.goto_and_close(edit_bufnr)
   end, { buffer = edit_bufnr, desc = 'Go to this state and close' })
 
-  -- Open in split
-  vim.cmd('split')
+  -- Open in vertical split on the right, fixed width
+  vim.cmd('botright vsplit')
   vim.api.nvim_win_set_buf(0, edit_bufnr)
+  vim.api.nvim_win_set_width(0, 20)
+  vim.wo.winfixwidth = true
 
   -- Preview first line
   M.preview_line(edit_bufnr, 1)
