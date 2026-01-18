@@ -137,13 +137,10 @@ function M.render(edit_bufnr)
   local cache = state.get_cache(info.source_bufnr)
   if not cache then return end
 
-  local lines = {}
+  -- Always start with empty state (position 0)
+  local lines = { '0  (empty)' }
   for _, s in ipairs(cache.filtered_states) do
     table.insert(lines, state_to_line(s))
-  end
-
-  if #lines == 0 then
-    lines = { '# No states for current blob. Add highlights first.' }
   end
 
   vim.bo[edit_bufnr].modifiable = true
@@ -167,7 +164,8 @@ function M.parse(edit_bufnr)
   for _, line in ipairs(lines) do
     if not line:match('^#') and vim.trim(line) ~= '' then
       local s = line_to_state(line, blob)
-      if s then
+      -- Skip index 0 (virtual empty state)
+      if s and s.index > 0 then
         table.insert(new_states, s)
       end
     end
@@ -309,6 +307,11 @@ function M.add_bookmark(edit_bufnr)
     return
   end
 
+  -- Don't add bookmark to the empty state (index 0)
+  if current_line:match('^0%s') then
+    return
+  end
+
   -- Find max bmN across all lines
   local max_num = 0
   for _, line in ipairs(lines) do
@@ -368,9 +371,9 @@ function M.goto_and_close(edit_bufnr)
     return
   end
 
-  -- Find position matching this line number (1-indexed position in filtered_states)
-  local position = line_nr
-  if position > 0 and position <= #cache.filtered_states then
+  -- Find position matching this line number (line 1 = position 0 empty state)
+  local position = line_nr - 1
+  if position >= 0 and position <= #cache.filtered_states then
     -- Delete autocmds before closing
     if info.augroup then
       vim.api.nvim_del_augroup_by_id(info.augroup)
