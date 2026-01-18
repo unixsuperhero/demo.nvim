@@ -344,4 +344,43 @@ function M.clear_all(bufnr)
   M.save(bufnr)
 end
 
+-- Reset: delete all states for current commit (start over)
+function M.reset(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local filepath = get_filepath(bufnr)
+  if filepath == '' then return false end
+
+  local cache = M.get_cache(bufnr)
+  if not cache then return false end
+
+  local current_commit = storage.get_commit()
+
+  -- Filter out states matching current commit
+  local new_states = {}
+  for _, state in ipairs(cache.states) do
+    if state.commit ~= current_commit then
+      table.insert(new_states, state)
+    end
+  end
+
+  -- Re-index remaining states sequentially
+  for i, state in ipairs(new_states) do
+    state.index = i
+  end
+
+  -- Update cache
+  cache.states = new_states
+  cache.filtered_states = {}
+  cache.current_position = 0
+  cache.current_commit = current_commit
+
+  -- Clear visual highlights and save
+  highlight.clear(bufnr)
+  M.save(bufnr)
+
+  local deleted_count = #cache.states - #new_states + #cache.filtered_states
+  vim.notify(string.format('demo.nvim: Reset - deleted all states for commit %s', current_commit or 'none'), vim.log.levels.INFO)
+  return true
+end
+
 return M

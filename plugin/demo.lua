@@ -83,6 +83,12 @@ end, {
   desc = 'Clear all demo highlights',
 })
 
+vim.api.nvim_create_user_command('DemoReset', function()
+  demo.reset()
+end, {
+  desc = 'Delete all states for current commit (start over)',
+})
+
 vim.api.nvim_create_user_command('DemoClearLine', function(opts)
   local line = opts.args ~= '' and tonumber(opts.args) or vim.fn.line('.')
   demo.clear_line(line)
@@ -93,14 +99,26 @@ end, {
 
 -- Bookmark commands
 vim.api.nvim_create_user_command('DemoBookmark', function(opts)
-  if opts.args == '' then
-    vim.notify('demo.nvim: Usage: :DemoBookmark {name}', vim.log.levels.ERROR)
-    return
+  local name = opts.args
+  if name == '' then
+    -- Auto-generate name: find highest bmN and increment
+    local state_mod = require('demo.state')
+    local filtered = state_mod.get_filtered()
+    local max_num = 0
+    for _, s in ipairs(filtered) do
+      if s.bookmark then
+        local num = s.bookmark:match('^bm(%d+)$')
+        if num then
+          max_num = math.max(max_num, tonumber(num))
+        end
+      end
+    end
+    name = 'bm' .. (max_num + 1)
   end
-  demo.bookmark(opts.args)
+  demo.bookmark(name)
 end, {
   nargs = '?',
-  desc = 'Bookmark current state with a name',
+  desc = 'Bookmark current state with a name (auto-generates if none given)',
 })
 
 vim.api.nvim_create_user_command('DemoDeleteBookmark', function(opts)
@@ -125,6 +143,12 @@ vim.api.nvim_create_user_command('DemoReload', function()
   vim.notify('demo.nvim: States reloaded from disk', vim.log.levels.INFO)
 end, {
   desc = 'Reload states from disk (after manual edit)',
+})
+
+vim.api.nvim_create_user_command('DemoEdit', function()
+  demo.edit()
+end, {
+  desc = 'Open interactive edit buffer for states',
 })
 
 -- Presenter commands
@@ -226,6 +250,12 @@ vim.keymap.set('n', '<leader>dr', ':DemoReload<CR>', { desc = 'Demo: Reload stat
 
 -- <leader>dg - Goto bookmark/step (prompts for name or number)
 vim.keymap.set('n', '<leader>dg', ':DemoGoto ', { desc = 'Demo: Goto bookmark/step' })
+
+-- <leader>de - Edit states interactively
+vim.keymap.set('n', '<leader>de', ':DemoEdit<CR>', { desc = 'Demo: Edit states' })
+
+-- <leader>dR - Reset (delete all states for current commit)
+vim.keymap.set('n', '<leader>dR', ':DemoReset<CR>', { desc = 'Demo: Reset (delete all states)' })
 
 -- Autocmd: Clear highlights and reset state when file contents change from disk
 vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileChangedShellPost' }, {

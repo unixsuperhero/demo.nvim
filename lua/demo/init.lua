@@ -2,6 +2,7 @@ local highlight = require('demo.highlight')
 local state = require('demo.state')
 local storage = require('demo.storage')
 local presenter = require('demo.presenter')
+local edit = require('demo.edit')
 
 local M = {}
 
@@ -52,6 +53,14 @@ end
 
 function M.delete_bookmark(name)
   return state.remove_bookmark(nil, name)
+end
+
+function M.reset()
+  return state.reset()
+end
+
+function M.edit()
+  return edit.open()
 end
 
 function M.list()
@@ -174,5 +183,6 @@ M.highlight_module = highlight
 M.state_module = state
 M.storage_module = storage
 M.presenter_module = presenter
+M.edit_module = edit
 
 return M
