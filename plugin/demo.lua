@@ -32,12 +32,19 @@ end
 -- Highlight commands
 vim.api.nvim_create_user_command('DemoHighlight', function(opts)
   local hlgroup = opts.args ~= '' and opts.args or 'DemoHighlight1'
-  demo.highlight(hlgroup)
+  if opts.range == 0 then
+    -- No range given, highlight current line
+    local line = vim.fn.line('.')
+    demo.highlight_lines(line, line, hlgroup)
+  else
+    -- Range given (visual selection), use visual marks
+    demo.highlight(hlgroup)
+  end
 end, {
   nargs = '?',
   range = true,
   complete = complete_hlgroups,
-  desc = 'Highlight visual selection with specified highlight group',
+  desc = 'Highlight visual selection or current line with specified highlight group',
 })
 
 vim.api.nvim_create_user_command('DemoHighlightLines', function(opts)
@@ -115,9 +122,14 @@ vim.api.nvim_create_user_command('DemoBookmark', function(opts)
     end
     name = 'bm' .. (max_num + 1)
   end
+  -- If range given (visual selection), highlight first then bookmark
+  if opts.range > 0 then
+    demo.highlight('DemoHighlight1')
+  end
   demo.bookmark(name)
 end, {
   nargs = '?',
+  range = true,
   desc = 'Bookmark current state with a name (auto-generates if none given)',
 })
 
@@ -225,6 +237,7 @@ vim.keymap.set('v', '<leader>dH', ':DemoHighlight<CR>', { desc = 'Demo: Highligh
 
 -- <leader>db - Bookmark (prompts for name)
 vim.keymap.set('n', '<leader>db', ':DemoBookmark ', { desc = 'Demo: Bookmark current state' })
+vim.keymap.set('v', '<leader>db', ':DemoBookmark ', { desc = 'Demo: Highlight and bookmark selection' })
 
 -- <leader>dn - Next bookmark
 vim.keymap.set('n', '<leader>dn', ':DemoNext<CR>', { desc = 'Demo: Next bookmark' })

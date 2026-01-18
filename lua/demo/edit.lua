@@ -296,6 +296,57 @@ function M.close(edit_bufnr)
   end
 end
 
+-- Add auto-generated bookmark to current line
+function M.add_bookmark(edit_bufnr)
+  local info = edit_buffers[edit_bufnr]
+  if not info then return end
+
+  local line_nr = vim.api.nvim_win_get_cursor(0)[1]
+  local lines = vim.api.nvim_buf_get_lines(edit_bufnr, 0, -1, false)
+  local current_line = lines[line_nr]
+
+  if not current_line or current_line:match('^#') or vim.trim(current_line) == '' then
+    return
+  end
+
+  -- Find max bmN across all lines
+  local max_num = 0
+  for _, line in ipairs(lines) do
+    local prefix = line:match('^([^%s]+)')
+    if prefix then
+      local bm = prefix:match('^%d+:(.+)$')
+      if bm then
+        local num = bm:match('^bm(%d+)$')
+        if num then
+          max_num = math.max(max_num, tonumber(num))
+        end
+      end
+    end
+  end
+
+  local new_bookmark = 'bm' .. (max_num + 1)
+
+  -- Parse current line and add bookmark
+  local prefix, rest = current_line:match('^([^%s]+)%s%s(.*)$')
+  if not prefix then
+    prefix = current_line:match('^([^%s]+)%s*$')
+    rest = '(empty)'
+  end
+  if not prefix then return end
+
+  -- Extract index (strip existing bookmark if any)
+  local index = prefix:match('^(%d+)')
+  if not index then return end
+
+  -- Build new line
+  local new_line = index .. ':' .. new_bookmark .. '  ' .. rest
+
+  -- Update buffer
+  vim.bo[edit_bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(edit_bufnr, line_nr - 1, line_nr, false, { new_line })
+  vim.bo[edit_bufnr].modified = true
+end
+
 -- Go to state on current line and close
 function M.goto_and_close(edit_bufnr)
   local info = edit_buffers[edit_bufnr]
@@ -440,6 +491,10 @@ function M.open(source_bufnr)
   vim.keymap.set('n', '<CR>', function()
     M.goto_and_close(edit_bufnr)
   end, { buffer = edit_bufnr, desc = 'Go to this state and close' })
+
+  vim.keymap.set('n', 'B', function()
+    M.add_bookmark(edit_bufnr)
+  end, { buffer = edit_bufnr, desc = 'Add auto-generated bookmark to current line' })
 
   -- Open in vertical split on the right, fixed width
   vim.cmd('botright vsplit')
