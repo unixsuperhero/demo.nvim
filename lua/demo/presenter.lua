@@ -26,6 +26,36 @@ local function unset_mappings(bufnr)
   end
 end
 
+-- Scroll the window so the first highlighted line is centered
+local function scroll_to_first_highlight(bufnr)
+  local pos = state.get_position(bufnr)
+  if not pos.state or not pos.state.highlights or #pos.state.highlights == 0 then
+    return
+  end
+
+  local min_line = math.huge
+  for _, hl in ipairs(pos.state.highlights) do
+    if hl.start_line < min_line then
+      min_line = hl.start_line
+    end
+  end
+
+  if min_line == math.huge then return end
+
+  local target_line = min_line + 1  -- extmarks are 0-indexed, cursor is 1-indexed
+  local wins = vim.fn.win_findbuf(bufnr)
+  if #wins == 0 then return end
+
+  local win = wins[1]
+  local line_count = vim.api.nvim_buf_line_count(bufnr)
+  target_line = math.min(target_line, line_count)
+  local col = vim.api.nvim_win_get_cursor(win)[2]
+  vim.api.nvim_win_set_cursor(win, { target_line, col })
+  vim.api.nvim_win_call(win, function()
+    vim.cmd('normal! zz')
+  end)
+end
+
 local function get_state(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   if not presenter_state[bufnr] then
@@ -109,6 +139,7 @@ function M.next_step(bufnr)
   end
 
   state.goto_position(bufnr, pos.position + 1)
+  scroll_to_first_highlight(bufnr)
   pos = state.get_position(bufnr)
 
   local bookmark_str = pos.state and pos.state.bookmark and (' "' .. pos.state.bookmark .. '"') or ''
@@ -133,6 +164,7 @@ function M.prev_step(bufnr)
   end
 
   state.goto_position(bufnr, pos.position - 1)
+  scroll_to_first_highlight(bufnr)
   pos = state.get_position(bufnr)
 
   if pos.position == 0 then
@@ -161,6 +193,7 @@ function M.next(bufnr)
   end
 
   state.goto_position(bufnr, next_pos)
+  scroll_to_first_highlight(bufnr)
   local pos = state.get_position(bufnr)
   local bookmarks = state.get_bookmarks(bufnr)
 
@@ -196,6 +229,7 @@ function M.prev(bufnr)
       return false
     end
     state.goto_position(bufnr, 0)
+    scroll_to_first_highlight(bufnr)
     local bookmarks = state.get_bookmarks(bufnr)
     pos = state.get_position(bufnr)
     vim.notify(string.format('demo.nvim: Step 0/%d (blank)', pos.total), vim.log.levels.INFO)
@@ -203,6 +237,7 @@ function M.prev(bufnr)
   end
 
   state.goto_position(bufnr, prev_pos)
+  scroll_to_first_highlight(bufnr)
   local pos = state.get_position(bufnr)
   local bookmarks = state.get_bookmarks(bufnr)
 
@@ -254,6 +289,7 @@ function M.goto_bookmark(bufnr, name_or_index)
     end
   end
 
+  scroll_to_first_highlight(bufnr)
   local pos = state.get_position(bufnr)
   if pos.position == 0 then
     vim.notify(string.format('demo.nvim: Step 0/%d (blank)', pos.total), vim.log.levels.INFO)
