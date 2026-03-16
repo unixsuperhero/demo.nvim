@@ -180,6 +180,25 @@ function M.info()
   return pinfo
 end
 
+-- Load a .demo file from an explicit path, bypassing blob hash matching.
+-- Immediately starts the presenter with all states from that file.
+function M.load_demo_file(path)
+  local bufnr = vim.api.nvim_get_current_buf()
+  path = vim.fn.fnamemodify(path, ':p')
+  local cache = state.load_from_path(bufnr, path)
+  if not cache then
+    vim.notify(string.format('demo.nvim: Could not read demo file: %s', path), vim.log.levels.ERROR)
+    return false
+  end
+  return presenter.start(bufnr)
+end
+
+-- List all demo files available for the current buffer (main + named sets)
+function M.list_demo_files()
+  local filepath = vim.api.nvim_buf_get_name(0)
+  return storage.list_demo_files(filepath)
+end
+
 -- Named sets API
 function M.save_set(name)
   return state.save_set(nil, name)

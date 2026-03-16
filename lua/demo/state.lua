@@ -88,6 +88,11 @@ function M.filter_to_blob(bufnr)
   local cache = M.get_cache(bufnr)
   if not cache then return {} end
 
+  -- If loaded from an explicit path, skip blob filtering
+  if cache.bypass_blob then
+    return cache.filtered_states
+  end
+
   local filepath = get_filepath(bufnr)
   local blob = storage.get_blob_hash(filepath)
   cache.current_blob = blob
@@ -335,6 +340,29 @@ function M.reload(bufnr)
   local key = get_cache_key(filepath)
   state_cache[key] = nil
   return M.load(bufnr)
+end
+
+-- Load states from an explicit .demo file path, bypassing blob filtering.
+-- All states in the file are treated as the active set for this buffer.
+function M.load_from_path(bufnr, path)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local filepath = get_filepath(bufnr)
+  if filepath == '' then return nil end
+
+  local states = storage.read_states_from_path(path)
+  if not states then return nil end
+
+  local key = get_cache_key(filepath)
+  state_cache[key] = {
+    states = states,
+    current_position = 0,
+    filtered_states = states,   -- all states available, no blob filtering
+    current_blob = nil,
+    bypass_blob = true,
+  }
+
+  highlight.clear(bufnr)
+  return state_cache[key]
 end
 
 -- Named sets functionality

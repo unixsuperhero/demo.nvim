@@ -75,8 +75,12 @@ function M.start(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   local pstate = get_state(bufnr)
 
-  -- Load states from disk and filter to current blob
-  state.load(bufnr)
+  -- Load states from disk and filter to current blob, unless already loaded
+  -- from an explicit path (bypass_blob flag skips re-loading and re-filtering)
+  local cache = state.get_cache(bufnr)
+  if not (cache and cache.bypass_blob) then
+    state.load(bufnr)
+  end
   local filtered = state.filter_to_blob(bufnr)
 
   if #filtered == 0 then

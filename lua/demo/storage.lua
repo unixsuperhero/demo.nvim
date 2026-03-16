@@ -203,13 +203,7 @@ local function parse_section_header(line)
   return nil, nil, nil
 end
 
-function M.read_states(filepath)
-  local states_path = M.get_states_path(filepath)
-  if vim.fn.filereadable(states_path) == 0 then
-    return {}
-  end
-
-  local lines = vim.fn.readfile(states_path)
+local function parse_lines_to_states(lines)
   local states = {}
   local current_state = nil
 
@@ -237,10 +231,41 @@ function M.read_states(filepath)
     table.insert(states, current_state)
   end
 
-  -- Sort by index
   table.sort(states, function(a, b) return a.index < b.index end)
-
   return states
+end
+
+function M.read_states(filepath)
+  local states_path = M.get_states_path(filepath)
+  if vim.fn.filereadable(states_path) == 0 then
+    return {}
+  end
+  return parse_lines_to_states(vim.fn.readfile(states_path))
+end
+
+-- Read states from an explicit path (no filepath-to-path translation)
+function M.read_states_from_path(path)
+  if vim.fn.filereadable(path) == 0 then
+    return nil
+  end
+  return parse_lines_to_states(vim.fn.readfile(path))
+end
+
+-- List all demo files available for a source filepath (main file + named sets)
+function M.list_demo_files(filepath)
+  local files = {}
+
+  local main_path = M.get_states_path(filepath)
+  if vim.fn.filereadable(main_path) == 1 then
+    table.insert(files, { name = 'main', path = main_path })
+  end
+
+  local sets = M.list_sets(filepath)
+  for _, set_name in ipairs(sets) do
+    table.insert(files, { name = 'set:' .. set_name, path = M.get_set_path(filepath, set_name) })
+  end
+
+  return files
 end
 
 function M.write_states(filepath, states)
@@ -370,37 +395,7 @@ function M.load_set(filepath, set_name)
   if vim.fn.filereadable(set_path) == 0 then
     return nil
   end
-
-  local lines = vim.fn.readfile(set_path)
-  local states = {}
-  local current_state = nil
-
-  for _, line in ipairs(lines) do
-    local index, bookmark, blob = parse_section_header(line)
-    if index then
-      if current_state then
-        table.insert(states, current_state)
-      end
-      current_state = {
-        index = index,
-        bookmark = bookmark,
-        blob = blob,
-        highlights = {},
-      }
-    elseif current_state then
-      local hl = parse_highlight_line(line)
-      if hl then
-        table.insert(current_state.highlights, hl)
-      end
-    end
-  end
-
-  if current_state then
-    table.insert(states, current_state)
-  end
-
-  table.sort(states, function(a, b) return a.index < b.index end)
-  return states
+  return parse_lines_to_states(vim.fn.readfile(set_path))
 end
 
 -- Delete a named set

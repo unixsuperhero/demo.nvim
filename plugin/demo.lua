@@ -228,6 +228,36 @@ end, {
   desc = 'Show demo.nvim status info',
 })
 
+-- DemoLoad: load any .demo file regardless of blob hash
+vim.api.nvim_create_user_command('DemoLoad', function(opts)
+  if opts.args ~= '' then
+    demo.load_demo_file(opts.args)
+    return
+  end
+
+  -- No arg: show picker of demo files for current buffer
+  local files = demo.list_demo_files()
+  if #files == 0 then
+    vim.notify('demo.nvim: No demo files found for this buffer', vim.log.levels.WARN)
+    return
+  end
+
+  local labels = {}
+  for _, f in ipairs(files) do
+    table.insert(labels, f.name .. '  (' .. f.path .. ')')
+  end
+
+  vim.ui.select(labels, { prompt = 'Load demo file:' }, function(choice, idx)
+    if choice and idx then
+      demo.load_demo_file(files[idx].path)
+    end
+  end)
+end, {
+  nargs = '?',
+  complete = 'file',
+  desc = 'Load a .demo file for the current buffer, bypassing blob hash matching',
+})
+
 -- Named sets commands
 local function complete_sets(arg_lead, cmd_line, cursor_pos)
   local sets = demo.list_sets()
