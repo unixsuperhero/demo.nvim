@@ -50,6 +50,12 @@ local function scroll_to_first_highlight(bufnr)
   local win = wins[1]
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   target_line = math.min(target_line, line_count)
+
+  -- Only scroll if the target line is not already visible
+  local top = vim.fn.line('w0', win)
+  local bot = vim.fn.line('w$', win)
+  if target_line >= top and target_line <= bot then return end
+
   local col = vim.api.nvim_win_get_cursor(win)[2]
   vim.api.nvim_win_set_cursor(win, { target_line, col })
   vim.api.nvim_win_call(win, function()
