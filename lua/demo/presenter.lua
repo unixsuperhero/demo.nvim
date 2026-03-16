@@ -12,6 +12,7 @@ local presenter_mappings = {
   { 'n', 'k', '<cmd>DemoPrev<cr>', 'Previous bookmark' },
   { 'n', 'l', '<cmd>DemoNextStep<cr>', 'Next step' },
   { 'n', 'h', '<cmd>DemoPrevStep<cr>', 'Previous step' },
+  { 'n', 'q', '<cmd>DemoStop<cr>', 'Stop presenter' },
 }
 
 local function set_mappings(bufnr)
