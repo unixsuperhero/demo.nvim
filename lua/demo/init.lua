@@ -55,6 +55,10 @@ function M.delete_bookmark(name)
   return state.remove_bookmark(nil, name)
 end
 
+function M.set_description(description)
+  return state.set_description(nil, description)
+end
+
 function M.reset()
   return state.reset()
 end
@@ -153,6 +157,14 @@ end
 
 function M.goto(name_or_index)
   return presenter.goto_bookmark(nil, name_or_index)
+end
+
+function M.start_sidebar()
+  return presenter.start_sidebar()
+end
+
+function M.toggle_sidebar()
+  return presenter.toggle_sidebar()
 end
 
 function M.info()

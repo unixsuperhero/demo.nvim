@@ -6,6 +6,9 @@ local M = {}
 -- Presenter state per buffer
 local presenter_state = {}
 
+-- Sidebar state per buffer: { bufnr, winnr }
+local sidebar_state = {}
+
 -- Buffer-local mappings for presenter mode
 local presenter_mappings = {
   { 'n', 'j', '<cmd>DemoNext<cr>', 'Next bookmark' },
@@ -61,6 +64,87 @@ local function scroll_to_first_highlight(bufnr)
   vim.api.nvim_win_call(win, function()
     vim.cmd('normal! zz')
   end)
+end
+
+local function update_sidebar(bufnr)
+  local sb = sidebar_state[bufnr]
+  if not sb then return end
+
+  -- Self-clean if the window was closed manually
+  if not vim.api.nvim_buf_is_valid(sb.bufnr) or not vim.api.nvim_win_is_valid(sb.winnr) then
+    sidebar_state[bufnr] = nil
+    return
+  end
+
+  local pos = state.get_position(bufnr)
+  local lines = {}
+
+  if pos.state then
+    if pos.state.bookmark then
+      table.insert(lines, '# ' .. pos.state.bookmark)
+      table.insert(lines, '')
+    end
+    if pos.state.description and pos.state.description ~= '' then
+      for _, line in ipairs(vim.split(pos.state.description, '\n', { plain = true })) do
+        table.insert(lines, line)
+      end
+    end
+  end
+
+  vim.bo[sb.bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(sb.bufnr, 0, -1, false, lines)
+  vim.bo[sb.bufnr].modifiable = false
+end
+
+local function open_sidebar(bufnr)
+  local sb_bufnr = vim.api.nvim_create_buf(false, true)
+  vim.bo[sb_bufnr].buftype = 'nofile'
+  vim.bo[sb_bufnr].bufhidden = 'wipe'
+  vim.bo[sb_bufnr].swapfile = false
+  vim.bo[sb_bufnr].modifiable = false
+
+  -- Open a right split from the source buffer's window
+  local source_win = nil
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == bufnr then
+      source_win = win
+      break
+    end
+  end
+  if source_win then
+    vim.api.nvim_set_current_win(source_win)
+  end
+
+  vim.cmd('botright vsplit')
+  local sb_winnr = vim.api.nvim_get_current_win()
+  vim.api.nvim_win_set_buf(sb_winnr, sb_bufnr)
+  vim.api.nvim_win_set_width(sb_winnr, 50)
+  vim.wo[sb_winnr].winfixwidth = true
+  vim.wo[sb_winnr].wrap = true
+  vim.wo[sb_winnr].linebreak = true
+  vim.wo[sb_winnr].number = false
+  vim.wo[sb_winnr].relativenumber = false
+  vim.wo[sb_winnr].signcolumn = 'no'
+  vim.wo[sb_winnr].cursorline = false
+
+  -- Return focus to source window
+  if source_win then
+    vim.api.nvim_set_current_win(source_win)
+  end
+
+  sidebar_state[bufnr] = { bufnr = sb_bufnr, winnr = sb_winnr }
+end
+
+local function close_sidebar(bufnr)
+  local sb = sidebar_state[bufnr]
+  if not sb then return end
+  if vim.api.nvim_win_is_valid(sb.winnr) then
+    vim.api.nvim_win_close(sb.winnr, true)
+  end
+  if vim.api.nvim_buf_is_valid(sb.bufnr) then
+    vim.api.nvim_buf_delete(sb.bufnr, { force = true })
+  end
+  sidebar_state[bufnr] = nil
 end
 
 local function get_state(bufnr)
@@ -119,6 +203,7 @@ function M.stop(bufnr)
   pstate.active = false
   unset_mappings(bufnr)
   highlight.clear(bufnr)
+  close_sidebar(bufnr)
 
   vim.notify('demo.nvim: Presenter stopped', vim.log.levels.INFO)
   return true
@@ -151,6 +236,7 @@ function M.next_step(bufnr)
 
   state.goto_position(bufnr, pos.position + 1)
   scroll_to_first_highlight(bufnr)
+  update_sidebar(bufnr)
   pos = state.get_position(bufnr)
 
   local bookmark_str = pos.state and pos.state.bookmark and (' "' .. pos.state.bookmark .. '"') or ''
@@ -176,6 +262,7 @@ function M.prev_step(bufnr)
 
   state.goto_position(bufnr, pos.position - 1)
   scroll_to_first_highlight(bufnr)
+  update_sidebar(bufnr)
   pos = state.get_position(bufnr)
 
   if pos.position == 0 then
@@ -205,6 +292,7 @@ function M.next(bufnr)
 
   state.goto_position(bufnr, next_pos)
   scroll_to_first_highlight(bufnr)
+  update_sidebar(bufnr)
   local pos = state.get_position(bufnr)
   local bookmarks = state.get_bookmarks(bufnr)
 
@@ -241,6 +329,7 @@ function M.prev(bufnr)
     end
     state.goto_position(bufnr, 0)
     scroll_to_first_highlight(bufnr)
+    update_sidebar(bufnr)
     local bookmarks = state.get_bookmarks(bufnr)
     pos = state.get_position(bufnr)
     vim.notify(string.format('demo.nvim: Step 0/%d (blank)', pos.total), vim.log.levels.INFO)
@@ -249,6 +338,7 @@ function M.prev(bufnr)
 
   state.goto_position(bufnr, prev_pos)
   scroll_to_first_highlight(bufnr)
+  update_sidebar(bufnr)
   local pos = state.get_position(bufnr)
   local bookmarks = state.get_bookmarks(bufnr)
 
@@ -301,6 +391,7 @@ function M.goto_bookmark(bufnr, name_or_index)
   end
 
   scroll_to_first_highlight(bufnr)
+  update_sidebar(bufnr)
   local pos = state.get_position(bufnr)
   if pos.position == 0 then
     vim.notify(string.format('demo.nvim: Step 0/%d (blank)', pos.total), vim.log.levels.INFO)
@@ -309,6 +400,24 @@ function M.goto_bookmark(bufnr, name_or_index)
     vim.notify(string.format('demo.nvim: Step %d/%d%s', pos.position, pos.total, bookmark_str), vim.log.levels.INFO)
   end
   return true
+end
+
+function M.start_sidebar(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  open_sidebar(bufnr)
+  local ok = M.start(bufnr)
+  if ok then update_sidebar(bufnr) end
+  return ok
+end
+
+function M.toggle_sidebar(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  if M.is_active(bufnr) then
+    close_sidebar(bufnr)
+    return M.stop(bufnr)
+  else
+    return M.start_sidebar(bufnr)
+  end
 end
 
 function M.get_info(bufnr)

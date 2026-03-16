@@ -206,33 +206,70 @@ end
 local function parse_lines_to_states(lines)
   local states = {}
   local current_state = nil
+  local current_desc = nil
+
+  local function flush()
+    if current_state then
+      if current_desc then
+        current_state.description = table.concat(current_desc, '\n')
+      end
+      table.insert(states, current_state)
+    end
+    current_state = nil
+    current_desc = nil
+  end
 
   for _, line in ipairs(lines) do
     local index, bookmark, blob = parse_section_header(line)
     if index then
-      if current_state then
-        table.insert(states, current_state)
-      end
-      current_state = {
-        index = index,
-        bookmark = bookmark,
-        blob = blob,
-        highlights = {},
-      }
+      flush()
+      current_state = { index = index, bookmark = bookmark, blob = blob, highlights = {} }
     elseif current_state then
-      local hl = parse_highlight_line(line)
-      if hl then
-        table.insert(current_state.highlights, hl)
+      local desc_text = line:match('^>%s?(.*)')
+      if desc_text then
+        if not current_desc then current_desc = {} end
+        table.insert(current_desc, desc_text)
+      else
+        local hl = parse_highlight_line(line)
+        if hl then
+          table.insert(current_state.highlights, hl)
+        end
       end
     end
   end
-
-  if current_state then
-    table.insert(states, current_state)
-  end
+  flush()
 
   table.sort(states, function(a, b) return a.index < b.index end)
   return states
+end
+
+-- Format a single state as storage lines (header + description + highlights + blank)
+local function format_state_block(s)
+  local lines = {}
+  local header
+  if s.bookmark and s.blob then
+    header = string.format('[%d:%s @ %s]', s.index, s.bookmark, s.blob)
+  elseif s.bookmark then
+    header = string.format('[%d:%s]', s.index, s.bookmark)
+  elseif s.blob then
+    header = string.format('[%d @ %s]', s.index, s.blob)
+  else
+    header = string.format('[%d]', s.index)
+  end
+  table.insert(lines, header)
+
+  if s.description and s.description ~= '' then
+    for _, desc_line in ipairs(vim.split(s.description, '\n', { plain = true })) do
+      table.insert(lines, '> ' .. desc_line)
+    end
+  end
+
+  for _, hl in ipairs(s.highlights) do
+    table.insert(lines, format_highlight(hl))
+  end
+
+  table.insert(lines, '')
+  return lines
 end
 
 function M.read_states(filepath)
@@ -280,22 +317,10 @@ function M.write_states(filepath, states)
     '',
   }
 
-  for _, state in ipairs(states) do
-    local header
-    if state.bookmark and state.blob then
-      header = string.format('[%d:%s @ %s]', state.index, state.bookmark, state.blob)
-    elseif state.bookmark then
-      header = string.format('[%d:%s]', state.index, state.bookmark)
-    elseif state.blob then
-      header = string.format('[%d @ %s]', state.index, state.blob)
-    else
-      header = string.format('[%d]', state.index)
+  for _, s in ipairs(states) do
+    for _, line in ipairs(format_state_block(s)) do
+      table.insert(lines, line)
     end
-    table.insert(lines, header)
-    for _, hl in ipairs(state.highlights) do
-      table.insert(lines, format_highlight(hl))
-    end
-    table.insert(lines, '')
   end
 
   vim.fn.writefile(lines, states_path)
@@ -367,22 +392,10 @@ function M.save_set(filepath, set_name, states)
     '',
   }
 
-  for _, state in ipairs(states) do
-    local header
-    if state.bookmark and state.blob then
-      header = string.format('[%d:%s @ %s]', state.index, state.bookmark, state.blob)
-    elseif state.bookmark then
-      header = string.format('[%d:%s]', state.index, state.bookmark)
-    elseif state.blob then
-      header = string.format('[%d @ %s]', state.index, state.blob)
-    else
-      header = string.format('[%d]', state.index)
+  for _, s in ipairs(states) do
+    for _, line in ipairs(format_state_block(s)) do
+      table.insert(lines, line)
     end
-    table.insert(lines, header)
-    for _, hl in ipairs(state.highlights) do
-      table.insert(lines, format_highlight(hl))
-    end
-    table.insert(lines, '')
   end
 
   vim.fn.writefile(lines, set_path)

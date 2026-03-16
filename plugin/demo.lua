@@ -182,6 +182,31 @@ end, {
   desc = 'Toggle presenter mode',
 })
 
+vim.api.nvim_create_user_command('DemoSStart', function()
+  demo.start_sidebar()
+end, {
+  desc = 'Start presenter mode with description sidebar',
+})
+
+vim.api.nvim_create_user_command('DemoSToggle', function()
+  demo.toggle_sidebar()
+end, {
+  desc = 'Toggle presenter mode with description sidebar',
+})
+
+vim.api.nvim_create_user_command('DemoDescription', function(opts)
+  if opts.args == '' then
+    vim.notify('demo.nvim: Usage: :DemoDescription {text}  (use \\n for newlines)', vim.log.levels.ERROR)
+    return
+  end
+  -- Allow \n as escape for newlines
+  local desc = opts.args:gsub('\\n', '\n')
+  demo.set_description(desc)
+end, {
+  nargs = '+',
+  desc = 'Set description on current state (use \\n for newlines)',
+})
+
 -- Bookmark navigation (jump between bookmarks)
 vim.api.nvim_create_user_command('DemoNext', function()
   demo.next()

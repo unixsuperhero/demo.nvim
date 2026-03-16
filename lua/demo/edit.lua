@@ -66,6 +66,20 @@ local function parse_highlight(str)
   return nil
 end
 
+-- Returns the filtered_states position (0=empty) for the block containing line_nr
+local function get_position_at_line(lines, line_nr)
+  local count = 0
+  for i = 1, line_nr do
+    local line = lines[i]
+    if vim.trim(line) ~= '' and not line:match('^#') and not line:match('^>') then
+      if line:match('^%d') then
+        count = count + 1
+      end
+    end
+  end
+  return math.max(0, count - 1)
+end
+
 -- Convert state to display line: "1  5-10 DemoHighlight1, 15:3-15:20 DemoHighlight2"
 -- With bookmark: "3:intro  5-10 DemoHighlight1"
 local function state_to_line(s)
@@ -85,6 +99,17 @@ local function state_to_line(s)
     return prefix .. '  (empty)'
   end
   return prefix .. '  ' .. table.concat(hl_strs, ', ')
+end
+
+-- Returns the display lines for a state (header + optional description lines)
+local function state_to_lines(s)
+  local result = { state_to_line(s) }
+  if s.description and s.description ~= '' then
+    for _, desc_line in ipairs(vim.split(s.description, '\n', { plain = true })) do
+      table.insert(result, '> ' .. desc_line)
+    end
+  end
+  return result
 end
 
 -- Parse display line back to state (without blob, that's preserved separately)
@@ -140,7 +165,9 @@ function M.render(edit_bufnr)
   -- Always start with empty state (position 0)
   local lines = { '0  (empty)' }
   for _, s in ipairs(cache.filtered_states) do
-    table.insert(lines, state_to_line(s))
+    for _, line in ipairs(state_to_lines(s)) do
+      table.insert(lines, line)
+    end
   end
 
   vim.bo[edit_bufnr].modifiable = true
@@ -160,16 +187,35 @@ function M.parse(edit_bufnr)
   local lines = vim.api.nvim_buf_get_lines(edit_bufnr, 0, -1, false)
   local new_states = {}
   local blob = cache.current_blob
+  local current_state = nil
+  local current_desc = nil
+
+  local function flush()
+    if current_state and current_state.index > 0 then
+      if current_desc then
+        current_state.description = table.concat(current_desc, '\n')
+      end
+      table.insert(new_states, current_state)
+    end
+    current_state = nil
+    current_desc = nil
+  end
 
   for _, line in ipairs(lines) do
-    if not line:match('^#') and vim.trim(line) ~= '' then
-      local s = line_to_state(line, blob)
-      -- Skip index 0 (virtual empty state)
-      if s and s.index > 0 then
-        table.insert(new_states, s)
+    if line:match('^#') or vim.trim(line) == '' then
+      -- skip
+    elseif line:match('^>') then
+      if current_state then
+        if not current_desc then current_desc = {} end
+        local text = line:match('^>%s?(.*)$') or ''
+        table.insert(current_desc, text)
       end
+    else
+      flush()
+      current_state = line_to_state(line, blob)
     end
   end
+  flush()
 
   return new_states
 end
@@ -235,30 +281,56 @@ function M.save(edit_bufnr)
   return true
 end
 
--- Preview highlights from current line
+-- Preview highlights from current line, and scroll source buffer to first highlight
 function M.preview_line(edit_bufnr, line_nr)
   local info = edit_buffers[edit_bufnr]
   if not info then return end
 
-  local lines = vim.api.nvim_buf_get_lines(edit_bufnr, line_nr - 1, line_nr, false)
+  local lines = vim.api.nvim_buf_get_lines(edit_bufnr, 0, -1, false)
   if #lines == 0 then return end
-
-  local line = lines[1]
-  if line:match('^#') or vim.trim(line) == '' then
-    -- Comment or empty line, clear preview
-    highlight.clear(info.source_bufnr)
-    return
-  end
 
   local cache = state.get_cache(info.source_bufnr)
   if not cache then return end
 
-  local s = line_to_state(line, cache.current_blob)
-  if s then
-    highlight.set_all(info.source_bufnr, s.highlights)
-  else
+  local position = get_position_at_line(lines, line_nr)
+
+  if position == 0 then
     highlight.clear(info.source_bufnr)
+    return
   end
+
+  local s = cache.filtered_states[position]
+  if not s then
+    highlight.clear(info.source_bufnr)
+    return
+  end
+
+  highlight.set_all(info.source_bufnr, s.highlights)
+
+  -- Scroll source buffer so first highlighted line is visible
+  if not s.highlights or #s.highlights == 0 then return end
+
+  local min_line = math.huge
+  for _, hl in ipairs(s.highlights) do
+    if hl.start_line < min_line then min_line = hl.start_line end
+  end
+  if min_line == math.huge then return end
+
+  local target_line = min_line + 1  -- 0-indexed → 1-indexed
+  local source_wins = vim.fn.win_findbuf(info.source_bufnr)
+  if #source_wins == 0 then return end
+
+  local win = source_wins[1]
+  local line_count = vim.api.nvim_buf_line_count(info.source_bufnr)
+  target_line = math.min(target_line, line_count)
+
+  local top = vim.fn.line('w0', win)
+  local bot = vim.fn.line('w$', win)
+  if target_line >= top and target_line <= bot then return end
+
+  local col = vim.api.nvim_win_get_cursor(win)[2]
+  vim.api.nvim_win_set_cursor(win, { target_line, col })
+  vim.api.nvim_win_call(win, function() vim.cmd('normal! zz') end)
 end
 
 -- Close edit buffer and restore original state
@@ -301,7 +373,19 @@ function M.add_bookmark(edit_bufnr)
 
   local line_nr = vim.api.nvim_win_get_cursor(0)[1]
   local lines = vim.api.nvim_buf_get_lines(edit_bufnr, 0, -1, false)
-  local current_line = lines[line_nr]
+
+  -- If cursor is on a description line, find the enclosing state header
+  local header_nr = line_nr
+  while header_nr >= 1 do
+    local l = lines[header_nr]
+    if l and not l:match('^#') and not l:match('^>') and vim.trim(l) ~= '' and l:match('^%d') then
+      break
+    end
+    header_nr = header_nr - 1
+  end
+  if header_nr < 1 then return end
+
+  local current_line = lines[header_nr]
 
   if not current_line or current_line:match('^#') or vim.trim(current_line) == '' then
     return
@@ -344,9 +428,9 @@ function M.add_bookmark(edit_bufnr)
   -- Build new line
   local new_line = index .. ':' .. new_bookmark .. '  ' .. rest
 
-  -- Update buffer
+  -- Update buffer (replace the state header line, not the cursor line)
   vim.bo[edit_bufnr].modifiable = true
-  vim.api.nvim_buf_set_lines(edit_bufnr, line_nr - 1, line_nr, false, { new_line })
+  vim.api.nvim_buf_set_lines(edit_bufnr, header_nr - 1, header_nr, false, { new_line })
   vim.bo[edit_bufnr].modified = true
 end
 
@@ -355,15 +439,8 @@ function M.goto_and_close(edit_bufnr)
   local info = edit_buffers[edit_bufnr]
   if not info then return end
 
+  local lines = vim.api.nvim_buf_get_lines(edit_bufnr, 0, -1, false)
   local line_nr = vim.api.nvim_win_get_cursor(0)[1]
-  local lines = vim.api.nvim_buf_get_lines(edit_bufnr, line_nr - 1, line_nr, false)
-  if #lines == 0 then return end
-
-  local line = lines[1]
-  if line:match('^#') or vim.trim(line) == '' then
-    M.close(edit_bufnr)
-    return
-  end
 
   local cache = state.get_cache(info.source_bufnr)
   if not cache then
@@ -371,18 +448,15 @@ function M.goto_and_close(edit_bufnr)
     return
   end
 
-  -- Find position matching this line number (line 1 = position 0 empty state)
-  local position = line_nr - 1
+  local position = get_position_at_line(lines, line_nr)
+
   if position >= 0 and position <= #cache.filtered_states then
-    -- Delete autocmds before closing
     if info.augroup then
       vim.api.nvim_del_augroup_by_id(info.augroup)
     end
 
-    -- Update position (highlights already applied from preview)
     cache.current_position = position
 
-    -- Focus source buffer
     for _, win in ipairs(vim.api.nvim_list_wins()) do
       if vim.api.nvim_win_get_buf(win) == info.source_bufnr then
         vim.api.nvim_set_current_win(win)
@@ -390,10 +464,8 @@ function M.goto_and_close(edit_bufnr)
       end
     end
 
-    -- Clean up
     edit_buffers[edit_bufnr] = nil
 
-    -- Delete edit buffer
     if vim.api.nvim_buf_is_valid(edit_bufnr) then
       vim.api.nvim_buf_delete(edit_bufnr, { force = true })
     end

@@ -213,6 +213,30 @@ function M.set_bookmark(bufnr, name)
   return true
 end
 
+-- Set description on the current state
+function M.set_description(bufnr, description)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local cache = M.get_cache(bufnr)
+  if not cache or cache.current_position == 0 or #cache.filtered_states == 0 then
+    vim.notify('demo.nvim: No current state to set description on', vim.log.levels.WARN)
+    return false
+  end
+
+  local filtered_state = cache.filtered_states[cache.current_position]
+  if not filtered_state then return false end
+
+  for _, s in ipairs(cache.states) do
+    if s.index == filtered_state.index then
+      s.description = description ~= '' and description or nil
+      filtered_state.description = s.description
+      break
+    end
+  end
+
+  M.save(bufnr)
+  return true
+end
+
 -- Remove bookmark from a state
 function M.remove_bookmark(bufnr, name)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
