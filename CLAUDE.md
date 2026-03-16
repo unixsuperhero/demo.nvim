@@ -53,10 +53,12 @@ plugin/demo.lua  -- User commands and keymaps
 
 **Presenter (navigation):**
 - `:DemoStart` / `:DemoStop` / `:DemoToggle` - Control presenter mode
+- `:DemoSStart` / `:DemoSToggle` - Presenter mode with 50-col description sidebar
 - `:DemoNext` / `:DemoPrev` - Jump between bookmarks
 - `:DemoNextStep` / `:DemoPrevStep` - Step through every state
 - `:DemoGoto {name|number}` - Jump to bookmark or step number
 - `:DemoList` - Show all states and bookmarks
+- `:DemoDescribe {text}` - Set description on current state (use `\n` for newlines)
 
 ## Keymaps
 
@@ -67,6 +69,7 @@ plugin/demo.lua  -- User commands and keymaps
 | `<leader>dn` | Normal | Next bookmark |
 | `<leader>dp` | Normal | Previous bookmark |
 | `<leader>ds` | Normal | Toggle presenter |
+| `<leader>dS` | Normal | Toggle presenter with sidebar |
 | `<leader>dc` | Normal | Clear highlights |
 | `<leader>dl` | Normal | List states |
 | `<leader>dN` | Normal | Next step (any state) |

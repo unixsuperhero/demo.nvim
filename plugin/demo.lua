@@ -194,9 +194,9 @@ end, {
   desc = 'Toggle presenter mode with description sidebar',
 })
 
-vim.api.nvim_create_user_command('DemoDescription', function(opts)
+vim.api.nvim_create_user_command('DemoDescribe', function(opts)
   if opts.args == '' then
-    vim.notify('demo.nvim: Usage: :DemoDescription {text}  (use \\n for newlines)', vim.log.levels.ERROR)
+    vim.notify('demo.nvim: Usage: :DemoDescribe {text}  (use \\n for newlines)', vim.log.levels.ERROR)
     return
   end
   -- Allow \n as escape for newlines
@@ -371,6 +371,9 @@ vim.keymap.set('n', '<leader>dp', ':DemoPrev<CR>', { desc = 'Demo: Previous book
 
 -- <leader>ds - Start/Stop toggle
 vim.keymap.set('n', '<leader>ds', ':DemoToggle<CR>', { desc = 'Demo: Toggle presenter' })
+
+-- <leader>dS - Toggle presenter with sidebar
+vim.keymap.set('n', '<leader>dS', ':DemoSToggle<CR>', { desc = 'Demo: Toggle presenter with sidebar' })
 
 -- <leader>dc - Clear all highlights
 vim.keymap.set('n', '<leader>dc', ':DemoClear<CR>', { desc = 'Demo: Clear highlights' })
