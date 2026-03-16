@@ -7,6 +7,9 @@ local M = {}
 -- Track edit buffers: edit_bufnr -> { source_bufnr, original_position, augroup }
 local edit_buffers = {}
 
+-- Track describe buffers: desc_bufnr -> { source_bufnr, augroup }
+local describe_buffers = {}
+
 -- Format a highlight for display (compact)
 local function format_highlight(hl)
   if hl.end_col == -1 then
@@ -581,6 +584,93 @@ function M.open(source_bufnr)
   M.preview_line(edit_bufnr, 1)
 
   return edit_bufnr
+end
+
+-- Open a buffer to edit the description of the current state
+function M.open_describe(source_bufnr)
+  source_bufnr = source_bufnr or vim.api.nvim_get_current_buf()
+
+  local cache = state.get_cache(source_bufnr)
+  if not cache or cache.current_position == 0 or #cache.filtered_states == 0 then
+    vim.notify('demo.nvim: Navigate to a state first (DemoNext, DemoPrev, etc.)', vim.log.levels.WARN)
+    return nil
+  end
+
+  local current_state = cache.filtered_states[cache.current_position]
+  if not current_state then return nil end
+
+  local name_str = current_state.bookmark
+    and ('"' .. current_state.bookmark .. '"')
+    or ('step ' .. cache.current_position)
+
+  local desc_bufnr = vim.api.nvim_create_buf(false, true)
+  pcall(vim.api.nvim_buf_set_name, desc_bufnr, 'demo-describe://' .. name_str)
+
+  describe_buffers[desc_bufnr] = { source_bufnr = source_bufnr }
+
+  vim.bo[desc_bufnr].buftype = 'acwrite'
+  vim.bo[desc_bufnr].bufhidden = 'wipe'
+  vim.bo[desc_bufnr].swapfile = false
+
+  -- Pre-populate with current description
+  local lines = {}
+  if current_state.description and current_state.description ~= '' then
+    for _, line in ipairs(vim.split(current_state.description, '\n', { plain = true })) do
+      table.insert(lines, line)
+    end
+  end
+
+  vim.api.nvim_buf_set_lines(desc_bufnr, 0, -1, false, lines)
+  vim.bo[desc_bufnr].modified = false
+
+  local augroup = vim.api.nvim_create_augroup('DemoDescribe' .. desc_bufnr, { clear = true })
+  describe_buffers[desc_bufnr].augroup = augroup
+
+  vim.api.nvim_create_autocmd('BufWriteCmd', {
+    group = augroup,
+    buffer = desc_bufnr,
+    callback = function()
+      local buf_lines = vim.api.nvim_buf_get_lines(desc_bufnr, 0, -1, false)
+      -- Strip trailing blank lines
+      while #buf_lines > 0 and vim.trim(buf_lines[#buf_lines]) == '' do
+        table.remove(buf_lines)
+      end
+      local desc = table.concat(buf_lines, '\n')
+      state.set_description(source_bufnr, desc)
+      vim.bo[desc_bufnr].modified = false
+      vim.notify('demo.nvim: Description saved', vim.log.levels.INFO)
+    end,
+  })
+
+  vim.api.nvim_create_autocmd('BufWipeout', {
+    group = augroup,
+    buffer = desc_bufnr,
+    callback = function()
+      if describe_buffers[desc_bufnr] then
+        pcall(vim.api.nvim_del_augroup_by_id, augroup)
+        describe_buffers[desc_bufnr] = nil
+      end
+    end,
+  })
+
+  vim.keymap.set('n', 'q', function()
+    vim.api.nvim_buf_delete(desc_bufnr, { force = true })
+  end, { buffer = desc_bufnr, desc = 'Close without saving' })
+
+  -- Open in a horizontal split at the bottom
+  vim.cmd('botright split')
+  vim.api.nvim_win_set_buf(0, desc_bufnr)
+  vim.api.nvim_win_set_height(0, 12)
+  vim.wo.winfixheight = true
+
+  -- Position cursor at end of content
+  local line_count = vim.api.nvim_buf_line_count(desc_bufnr)
+  vim.api.nvim_win_set_cursor(0, { line_count, 0 })
+  if #lines == 0 then
+    vim.cmd('startinsert')
+  end
+
+  return desc_bufnr
 end
 
 return M

@@ -196,15 +196,16 @@ end, {
 
 vim.api.nvim_create_user_command('DemoDescribe', function(opts)
   if opts.args == '' then
-    vim.notify('demo.nvim: Usage: :DemoDescribe {text}  (use \\n for newlines)', vim.log.levels.ERROR)
-    return
+    -- No arg: open a buffer to edit the description
+    demo.describe()
+  else
+    -- Inline text: allow \n as newline escape
+    local desc = opts.args:gsub('\\n', '\n')
+    demo.set_description(desc)
   end
-  -- Allow \n as escape for newlines
-  local desc = opts.args:gsub('\\n', '\n')
-  demo.set_description(desc)
 end, {
-  nargs = '+',
-  desc = 'Set description on current state (use \\n for newlines)',
+  nargs = '*',
+  desc = 'Edit description for current state in a buffer (or set inline with text arg)',
 })
 
 -- Bookmark navigation (jump between bookmarks)

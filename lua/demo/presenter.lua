@@ -147,6 +147,21 @@ local function close_sidebar(bufnr)
   sidebar_state[bufnr] = nil
 end
 
+-- Ensure states are loaded and filtered for the buffer; returns false if none found.
+local function ensure_loaded(bufnr)
+  local cache = state.get_cache(bufnr)  -- auto-loads from disk if needed
+  if not cache then return false end
+  if #cache.filtered_states == 0 and not cache.bypass_blob then
+    state.filter_to_blob(bufnr)
+    cache = state.get_cache(bufnr)
+    if #cache.filtered_states == 0 then
+      vim.notify('demo.nvim: No states for current file', vim.log.levels.WARN)
+      return false
+    end
+  end
+  return true
+end
+
 local function get_state(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
   if not presenter_state[bufnr] then
@@ -221,12 +236,8 @@ end
 -- Next step (any state)
 function M.next_step(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local pstate = get_state(bufnr)
 
-  if not pstate.active then
-    vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
-    return false
-  end
+  if not ensure_loaded(bufnr) then return false end
 
   local pos = state.get_position(bufnr)
   if pos.position >= pos.total then
@@ -247,12 +258,8 @@ end
 -- Previous step (any state)
 function M.prev_step(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local pstate = get_state(bufnr)
 
-  if not pstate.active then
-    vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
-    return false
-  end
+  if not ensure_loaded(bufnr) then return false end
 
   local pos = state.get_position(bufnr)
   if pos.position <= 0 then
@@ -277,12 +284,8 @@ end
 -- Next bookmark
 function M.next(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local pstate = get_state(bufnr)
 
-  if not pstate.active then
-    vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
-    return false
-  end
+  if not ensure_loaded(bufnr) then return false end
 
   local next_pos = state.find_bookmark_position(bufnr, 1)
   if not next_pos then
@@ -312,12 +315,8 @@ end
 -- Previous bookmark
 function M.prev(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local pstate = get_state(bufnr)
 
-  if not pstate.active then
-    vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
-    return false
-  end
+  if not ensure_loaded(bufnr) then return false end
 
   local prev_pos = state.find_bookmark_position(bufnr, -1)
   if not prev_pos then
@@ -358,12 +357,8 @@ end
 -- Go to specific bookmark by name or step by number
 function M.goto_bookmark(bufnr, name_or_index)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local pstate = get_state(bufnr)
 
-  if not pstate.active then
-    vim.notify('demo.nvim: Presenter is not active. Run :DemoStart first.', vim.log.levels.WARN)
-    return false
-  end
+  if not ensure_loaded(bufnr) then return false end
 
   local all_states = state.get_all(bufnr)
 

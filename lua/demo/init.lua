@@ -59,6 +59,10 @@ function M.set_description(description)
   return state.set_description(nil, description)
 end
 
+function M.describe()
+  return edit.open_describe()
+end
+
 function M.reset()
   return state.reset()
 end
